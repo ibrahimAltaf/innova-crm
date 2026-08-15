@@ -61,6 +61,8 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
+import urllib.parse
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
@@ -68,17 +70,36 @@ DATABASES = {
     }
 }
 USE_POSTGRES = os.getenv("USE_POSTGRES", "false").lower() in {"1", "true", "yes"}
+db_url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL")
 if "test" in sys.argv:
-    USE_POSTGRES = False
-if USE_POSTGRES:
+    pass
+elif db_url:
+    url = urllib.parse.urlparse(db_url)
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.getenv("POSTGRES_DB", "innovacrm"),
-            "USER": os.getenv("POSTGRES_USER", "postgres"),
-            "PASSWORD": os.getenv("POSTGRES_PASSWORD", "postgres"),
-            "HOST": os.getenv("POSTGRES_HOST", "127.0.0.1"),
+            "NAME": url.path.lstrip("/"),
+            "USER": urllib.parse.unquote(url.username or ""),
+            "PASSWORD": urllib.parse.unquote(url.password or ""),
+            "HOST": url.hostname,
+            "PORT": url.port or 5432,
+            "OPTIONS": {
+                "sslmode": "require",
+            },
+        }
+    }
+elif USE_POSTGRES or os.getenv("POSTGRES_HOST"):
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.getenv("POSTGRES_DATABASE") or os.getenv("POSTGRES_DB") or os.getenv("PGDATABASE", "innovacrm"),
+            "USER": os.getenv("POSTGRES_USER") or os.getenv("PGUSER", "postgres"),
+            "PASSWORD": os.getenv("POSTGRES_PASSWORD") or os.getenv("PGPASSWORD", "postgres"),
+            "HOST": os.getenv("POSTGRES_HOST") or os.getenv("PGHOST", "127.0.0.1"),
             "PORT": os.getenv("POSTGRES_PORT", "5432"),
+            "OPTIONS": {
+                "sslmode": "require",
+            },
         }
     }
 
