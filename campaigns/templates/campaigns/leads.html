@@ -1,0 +1,197 @@
+{% extends "campaigns/base.html" %}
+{% block title %}Leads · Innova CRM{% endblock %}
+{% block content %}
+{% csrf_token %}
+<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-3">
+  <div>
+    <h1 class="page-title h3 mb-1">Lead management</h1>
+    <p class="page-kicker mb-0">{{ total_leads }} leads · drag cards to change status · click a card to open the record</p>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <form class="d-flex gap-2" method="get">
+      <input type="hidden" name="view" value="{{ view }}">
+      {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+      <input class="form-control" name="q" value="{{ q }}" placeholder="Search name, email, company" style="min-width:220px;">
+      <button class="btn btn-outline-secondary" type="submit">Search</button>
+    </form>
+    <button class="btn btn-primary" type="button" data-bs-toggle="offcanvas" data-bs-target="#addLeadPanel">
+      <i class="bi bi-plus-lg"></i> Add lead
+    </button>
+  </div>
+</div>
+
+<div class="row g-2 mb-3">
+  {% for key, label, count, value in status_cards %}
+  <div class="col">
+    <a class="status-tile status-tile-{{ key }} {% if status == key %}is-active{% endif %}" href="?view={{ view }}{% if q %}&q={{ q }}{% endif %}{% if status == key %}{% else %}&status={{ key }}{% endif %}">
+      <span class="status-tile-label">{{ label }}</span>
+      <strong>{{ count }}</strong>
+      <span class="status-tile-value">{{ value }}</span>
+    </a>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div class="btn-group">
+    <a class="btn btn-sm {% if view == 'board' %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?view=board{% if q %}&q={{ q }}{% endif %}">
+      <i class="bi bi-kanban"></i> Board
+    </a>
+    <a class="btn btn-sm {% if view == 'table' %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?view=table{% if q %}&q={{ q }}{% endif %}{% if status %}&status={{ status }}{% endif %}">
+      <i class="bi bi-table"></i> Table
+    </a>
+  </div>
+  <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="offcanvas" data-bs-target="#importLeadPanel">Import CSV</button>
+</div>
+
+{% if view == "board" %}
+<div class="kanban" id="kanban">
+  {% for col in columns %}
+  <section class="kanban-col kanban-col-{{ col.key }}" data-status="{{ col.key }}">
+    <header class="kanban-col-head">
+      <div>
+        <span class="kanban-dot"></span>
+        <strong>{{ col.label }}</strong>
+        <span class="kanban-count">{{ col.count }}</span>
+      </div>
+      <div class="small text-secondary">{{ col.value }}</div>
+    </header>
+    <div class="kanban-drop">
+      {% for lead in col.leads %}
+      <article class="kanban-card" draggable="true" data-id="{{ lead.pk }}">
+        <div class="d-flex justify-content-between gap-2">
+          <a href="{% url 'campaigns:lead_detail' lead.pk %}" class="fw-semibold text-decoration-none">{{ lead.name|default:lead.email }}</a>
+          <span class="badge-status {{ lead.status }}">{{ lead.get_status_display }}</span>
+        </div>
+        <div class="small text-secondary mt-1">{{ lead.company|default:lead.email }}</div>
+        {% if lead.phone %}<div class="small text-secondary">{{ lead.phone }}</div>{% endif %}
+        <div class="d-flex justify-content-between align-items-center mt-2">
+          <span class="small fw-semibold">{% if lead.value %}{{ lead.value }}{% else %}—{% endif %}</span>
+          {% if lead.next_follow_up %}<span class="small text-secondary">{{ lead.next_follow_up }}</span>{% endif %}
+        </div>
+      </article>
+      {% empty %}
+      <div class="kanban-empty">Drop here · {{ col.label }}</div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+</div>
+{% else %}
+<div class="panel p-0 overflow-hidden">
+  {% if leads %}
+  <div class="table-responsive">
+    <table class="table align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Lead</th>
+          <th>Company</th>
+          <th>Value</th>
+          <th>Status</th>
+          <th>Follow-up</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for lead in leads %}
+        <tr>
+          <td>
+            <a class="fw-semibold text-decoration-none" href="{% url 'campaigns:lead_detail' lead.pk %}">{{ lead.name|default:"—" }}</a>
+            <div class="small text-secondary">{{ lead.email }} {% if lead.phone %}· {{ lead.phone }}{% endif %}</div>
+          </td>
+          <td>{{ lead.company|default:"—" }}</td>
+          <td>{{ lead.value }}</td>
+          <td><span class="badge-status {{ lead.status }}">{{ lead.get_status_display }}</span></td>
+          <td class="small">{{ lead.next_follow_up|default:"—" }}</td>
+          <td class="text-end">
+            <form class="d-inline" method="post" action="{% url 'campaigns:lead_convert' lead.pk %}">{% csrf_token %}<button class="btn btn-sm btn-outline-primary" type="submit">To contact</button></form>
+            <form class="d-inline" method="post" action="{% url 'campaigns:lead_delete' lead.pk %}" onsubmit="return confirm('Delete lead?');">{% csrf_token %}<button class="btn btn-sm btn-outline-danger" type="submit">Delete</button></form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="text-secondary p-4 mb-0">No leads in this view. Add a lead or import a CSV.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="offcanvas offcanvas-end" tabindex="-1" id="addLeadPanel">
+  <div class="offcanvas-header">
+    <h2 class="h5 mb-0">Add lead</h2>
+    <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
+  </div>
+  <div class="offcanvas-body">
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="add">
+      <div class="mb-2"><label class="form-label">Email</label>{{ form.email }}</div>
+      <div class="mb-2"><label class="form-label">Name</label>{{ form.name }}</div>
+      <div class="mb-2"><label class="form-label">Phone</label>{{ form.phone }}</div>
+      <div class="mb-2"><label class="form-label">Company</label>{{ form.company }}</div>
+      <div class="mb-2"><label class="form-label">Title</label>{{ form.job_title }}</div>
+      <div class="mb-2"><label class="form-label">Source</label>{{ form.source }}</div>
+      <div class="mb-2"><label class="form-label">Deal value</label>{{ form.value }}</div>
+      <div class="mb-2"><label class="form-label">Follow-up date</label>{{ form.next_follow_up }}</div>
+      <div class="mb-2"><label class="form-label">Status</label>{{ form.status }}</div>
+      <div class="mb-3"><label class="form-label">Notes</label>{{ form.notes }}</div>
+      <button class="btn btn-primary w-100" type="submit">Save lead</button>
+    </form>
+  </div>
+</div>
+
+<div class="offcanvas offcanvas-end" tabindex="-1" id="importLeadPanel">
+  <div class="offcanvas-header">
+    <h2 class="h5 mb-0">Import CSV</h2>
+    <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
+  </div>
+  <div class="offcanvas-body">
+    <p class="small text-secondary">Columns: <code>email,name,phone,company,source</code></p>
+    <form method="post" action="{% url 'campaigns:leads_import' %}" enctype="multipart/form-data">
+      {% csrf_token %}
+      <div class="mb-2">{{ import_form.csv_file }}</div>
+      <div class="mb-3">{{ import_form.paste_list }}</div>
+      <button class="btn btn-outline-primary w-100" type="submit">Import leads</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if view == "board" %}
+<script>
+  const csrf = document.querySelector("[name=csrfmiddlewaretoken]").value;
+  let dragging = null;
+  document.querySelectorAll(".kanban-card").forEach((card) => {
+    card.addEventListener("dragstart", () => { dragging = card; card.classList.add("dragging"); });
+    card.addEventListener("dragend", () => { card.classList.remove("dragging"); dragging = null; });
+  });
+  document.querySelectorAll(".kanban-col").forEach((col) => {
+    col.addEventListener("dragover", (event) => { event.preventDefault(); col.classList.add("drag-over"); });
+    col.addEventListener("dragleave", () => col.classList.remove("drag-over"));
+    col.addEventListener("drop", async (event) => {
+      event.preventDefault();
+      col.classList.remove("drag-over");
+      if (!dragging) return;
+      const drop = col.querySelector(".kanban-drop");
+      const empty = drop.querySelector(".kanban-empty");
+      if (empty) empty.remove();
+      drop.prepend(dragging);
+      const badge = dragging.querySelector(".badge-status");
+      if (badge) {
+        badge.className = "badge-status " + col.dataset.status;
+        badge.textContent = col.querySelector("strong").textContent;
+      }
+      const res = await fetch(`/leads/${dragging.dataset.id}/move/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": csrf },
+        body: JSON.stringify({ status: col.dataset.status }),
+      });
+      if (!res.ok) window.location.reload();
+    });
+  });
+</script>
+{% endif %}
+{% endblock %}

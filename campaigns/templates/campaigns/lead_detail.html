@@ -1,0 +1,82 @@
+{% extends "campaigns/base.html" %}
+{% block title %}{{ lead.name|default:lead.email }} · Innova CRM{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-2">
+  <div>
+    <a class="small text-secondary text-decoration-none" href="{% url 'campaigns:leads' %}">← Lead management</a>
+    <h1 class="page-title h3 mb-1">{{ lead.name|default:lead.email }}</h1>
+    <p class="page-kicker mb-0">
+      <span class="badge-status {{ lead.status }}">{{ lead.get_status_display }}</span>
+      · {{ lead.company|default:"No company" }}
+      · {{ lead.value }}
+    </p>
+    <div class="stage-track mt-3">
+      {% for key, label in statuses %}
+        <form method="post" action="{% url 'campaigns:lead_move' lead.pk %}" class="stage-step {% if lead.status == key %}is-current{% endif %}">
+          {% csrf_token %}
+          <input type="hidden" name="status" value="{{ key }}">
+          <button type="submit">{{ label }}</button>
+        </form>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="d-flex gap-2">
+    <form method="post" action="{% url 'campaigns:lead_convert' lead.pk %}">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{% url 'campaigns:lead_detail' lead.pk %}">
+      <button class="btn btn-outline-primary" type="submit">Save as contact</button>
+    </form>
+    <a class="btn btn-primary" href="{% url 'campaigns:create' %}">Email this lead</a>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="panel p-4 mb-4">
+      <h2 class="h6 mb-3">Record</h2>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="edit">
+        <div class="row g-3">
+          <div class="col-md-6"><label class="form-label">Email</label>{{ form.email }}</div>
+          <div class="col-md-6"><label class="form-label">Name</label>{{ form.name }}</div>
+          <div class="col-md-6"><label class="form-label">Phone</label>{{ form.phone }}</div>
+          <div class="col-md-6"><label class="form-label">Company</label>{{ form.company }}</div>
+          <div class="col-md-6"><label class="form-label">Title</label>{{ form.job_title }}</div>
+          <div class="col-md-6"><label class="form-label">Source</label>{{ form.source }}</div>
+          <div class="col-md-4"><label class="form-label">Stage</label>{{ form.status }}</div>
+          <div class="col-md-4"><label class="form-label">Deal value</label>{{ form.value }}</div>
+          <div class="col-md-4"><label class="form-label">Follow-up</label>{{ form.next_follow_up }}</div>
+          <div class="col-12"><label class="form-label">Notes</label>{{ form.notes }}</div>
+        </div>
+        <button class="btn btn-primary mt-3" type="submit">Save record</button>
+      </form>
+    </div>
+    <div class="panel p-4">
+      <h2 class="h6 mb-3">Log activity</h2>
+      <form method="post" action="{% url 'campaigns:lead_note' lead.pk %}">
+        {% csrf_token %}
+        {{ note_form.message }}
+        <button class="btn btn-outline-primary mt-2" type="submit">Add note</button>
+      </form>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="panel p-4">
+      <h2 class="h6 mb-3">Timeline</h2>
+      {% if activities %}
+      <ul class="activity-list">
+        {% for item in activities %}
+        <li>
+          <div class="small text-uppercase text-secondary">{{ item.get_kind_display }} · {{ item.created_at|date:"M j, H:i" }}</div>
+          <div>{{ item.message }}</div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+        <p class="text-secondary mb-0">No activity yet. Add a note or move this card on the board.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,45 @@
+{% extends "campaigns/base.html" %}
+{% block title %}Campaigns · Innova CRM{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="page-title h3 mb-1">Campaigns</h1>
+    <p class="page-kicker mb-0">Open a campaign, add people, send a test, then click <strong>Send emails</strong>.</p>
+  </div>
+  <a class="btn btn-primary" href="{% url 'campaigns:create' %}"><i class="bi bi-plus-lg"></i> New campaign</a>
+</div>
+
+<div class="panel p-4">
+  {% if campaigns %}
+  <div class="table-responsive">
+    <table class="table align-middle">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Template</th>
+          <th>Status</th>
+          <th>People</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in campaigns %}
+        <tr>
+          <td class="fw-semibold">{{ c.name }}</td>
+          <td>{{ c.template.name }}</td>
+          <td><span class="badge-status {{ c.status }}">{{ c.status }}</span></td>
+          <td>{{ c.total_recipients }}</td>
+          <td class="text-end">
+            <a class="btn btn-sm btn-outline-secondary" href="{% url 'campaigns:recipients' c.pk %}">People</a>
+            <a class="btn btn-sm btn-primary" href="{% url 'campaigns:detail' c.pk %}">Open</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="text-secondary mb-0">No campaigns yet. <a href="{% url 'campaigns:create' %}">Create one</a>.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,190 @@
+{% extends "campaigns/base.html" %}
+{% block title %}Dashboard · Innova CRM{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <div>
+    <h1 class="page-title h3 mb-1">Dashboard</h1>
+    <p class="page-kicker mb-0">Pipeline, outreach, and follow-ups in one place.</p>
+  </div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-primary" href="{% url 'campaigns:leads' %}">Lead board</a>
+    <a class="btn btn-primary" href="{% url 'campaigns:create' %}">New campaign</a>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-3"><div class="stat-card"><span>Open pipeline</span><strong>{{ stats.open }}</strong><div class="small text-secondary mt-1">{{ stats.pipeline }} value</div></div></div>
+  <div class="col-md-3"><div class="stat-card"><span>Win rate</span><strong>{{ stats.win_rate }}%</strong><div class="small text-secondary mt-1">Won {{ stats.won_value }}</div></div></div>
+  <div class="col-md-3"><div class="stat-card"><span>Emails sent</span><strong>{{ stats.sent }}</strong><div class="small text-secondary mt-1">{{ stats.campaigns }} campaigns</div></div></div>
+  <div class="col-md-3"><div class="stat-card"><span>People</span><strong>{{ stats.contacts }}</strong><div class="small text-secondary mt-1">{{ stats.leads }} leads</div></div></div>
+</div>
+
+<div class="row g-4 mb-4">
+  <div class="col-lg-8">
+    <div class="panel p-4 h-100">
+      <h2 class="h6 mb-3">Emails sent · last 14 days</h2>
+      <canvas id="email-chart" height="120"></canvas>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="panel p-4 h-100">
+      <h2 class="h6 mb-3">Lead sources</h2>
+      <canvas id="source-chart" height="220"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4 mb-4">
+  <div class="col-lg-7">
+    <div class="panel p-4">
+      <h2 class="h6 mb-3">Pipeline funnel</h2>
+      <canvas id="funnel-chart" height="140"></canvas>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="panel p-4">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h6 mb-0">Follow-ups due</h2>
+        <a class="small" href="{% url 'campaigns:leads' %}">Board</a>
+      </div>
+      {% if due %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <tbody>
+            {% for lead in due %}
+            <tr>
+              <td>
+                <a href="{% url 'campaigns:lead_detail' lead.pk %}" class="fw-semibold text-decoration-none">{{ lead.name|default:lead.email }}</a>
+                <div class="small text-secondary">{{ lead.company|default:lead.email }}</div>
+              </td>
+              <td class="text-end small">{{ lead.next_follow_up }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        <p class="text-secondary mb-0">No overdue follow-ups. Set a date on a lead record.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="panel p-4">
+      <h2 class="h6 mb-3">Recent campaigns</h2>
+      {% if campaigns %}
+      <div class="table-responsive">
+        <table class="table align-middle mb-0">
+          <thead><tr><th>Name</th><th>Status</th><th>Progress</th><th></th></tr></thead>
+          <tbody>
+            {% for c in campaigns %}
+            <tr>
+              <td class="fw-semibold">{{ c.name }}</td>
+              <td><span class="badge-status {{ c.status }}">{{ c.status }}</span></td>
+              <td>{{ c.sent_count }} / {{ c.total_recipients }}</td>
+              <td class="text-end"><a class="btn btn-sm btn-primary" href="{% url 'campaigns:detail' c.pk %}">Open</a></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        <p class="text-secondary mb-0">No campaigns yet.</p>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="panel p-4">
+      <h2 class="h6 mb-3">Activity</h2>
+      {% if activities %}
+        <ul class="activity-list">
+          {% for item in activities %}
+          <li>
+            <div class="fw-semibold"><a href="{% url 'campaigns:lead_detail' item.lead_id %}">{{ item.lead.name|default:item.lead.email }}</a></div>
+            <div class="small text-secondary">{{ item.message }}</div>
+            <div class="small text-secondary">{{ item.created_at|date:"M j, H:i" }}</div>
+          </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="text-secondary mb-0">Move cards on the pipeline to start a timeline.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{{ funnel|json_script:"funnel-data" }}
+{{ sources|json_script:"source-data" }}
+{{ email_trend|json_script:"email-data" }}
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+  const funnel = JSON.parse(document.getElementById("funnel-data").textContent);
+  const sources = JSON.parse(document.getElementById("source-data").textContent);
+  const emails = JSON.parse(document.getElementById("email-data").textContent);
+  const grid = "#eaecf0";
+  const tick = "#667085";
+
+  new Chart(document.getElementById("email-chart"), {
+    type: "line",
+    data: {
+      labels: emails.map((row) => row.day),
+      datasets: [{
+        label: "Emails sent",
+        data: emails.map((row) => row.count),
+        borderColor: "#4f46e5",
+        backgroundColor: "rgba(79,70,229,.12)",
+        fill: true,
+        tension: 0.35,
+        pointRadius: 3,
+      }],
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: tick }, grid: { display: false } },
+        y: { beginAtZero: true, ticks: { precision: 0, color: tick }, grid: { color: grid } },
+      },
+    },
+  });
+
+  new Chart(document.getElementById("funnel-chart"), {
+    type: "bar",
+    data: {
+      labels: funnel.map((row) => row.label),
+      datasets: [{
+        label: "Leads",
+        data: funnel.map((row) => row.count),
+        backgroundColor: ["#94a3b8", "#6366f1", "#22c55e", "#16a34a", "#f43f5e"],
+        borderRadius: 8,
+      }],
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: tick }, grid: { display: false } },
+        y: { beginAtZero: true, ticks: { precision: 0, color: tick }, grid: { color: grid } },
+      },
+    },
+  });
+
+  new Chart(document.getElementById("source-chart"), {
+    type: "doughnut",
+    data: {
+      labels: sources.length ? sources.map((row) => row.label) : ["No leads yet"],
+      datasets: [{
+        data: sources.length ? sources.map((row) => row.count) : [1],
+        backgroundColor: ["#4f46e5", "#7c3aed", "#0ea5e9", "#10b981", "#f59e0b", "#f43f5e", "#64748b", "#14b8a6"],
+      }],
+    },
+    options: {
+      plugins: { legend: { position: "bottom", labels: { boxWidth: 12 } } },
+      cutout: "62%",
+    },
+  });
+</script>
+{% endblock %}

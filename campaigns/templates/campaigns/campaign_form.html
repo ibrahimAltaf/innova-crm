@@ -1,0 +1,90 @@
+{% extends "campaigns/base.html" %}
+{% block title %}{{ title }} · Innova CRM{% endblock %}
+{% block content %}
+<h1 class="page-title h3 mb-1">{{ title }}</h1>
+<p class="page-kicker mb-4">Pick a layout, write a clear subject, then add people.</p>
+<form method="post" class="row g-4">
+  {% csrf_token %}
+  <div class="col-lg-7">
+    <div class="panel p-4">
+      {{ form.non_field_errors }}
+      <div class="mb-3">
+        <label class="form-label">Campaign name</label>
+        {{ form.name }}
+        {{ form.name.errors }}
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Template</label>
+        {{ form.template }}
+        {{ form.template.errors }}
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Subject</label>
+        {{ form.subject }}
+        <div class="form-text">Keep it under 50 characters. Avoid ALL CAPS and words like FREE!!!</div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Preheader</label>
+        {{ form.preheader }}
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Heading</label>
+        {{ form.heading }}
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Body</label>
+        {{ form.body }}
+        <div class="form-text">Each recipient is greeted by name. Keep the copy useful and short.</div>
+      </div>
+      <div class="row">
+        <div class="col-md-6 mb-3">
+          <label class="form-label">Button text</label>
+          {{ form.cta_text }}
+        </div>
+        <div class="col-md-6 mb-3">
+          <label class="form-label">Button URL</label>
+          {{ form.cta_url }}
+        </div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Image URL (optional)</label>
+        {{ form.image_url }}
+        <div class="form-text">Host the image on your own domain. Image-only emails look like spam.</div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Extra note / subtitle</label>
+        {{ form.extra_note }}
+      </div>
+      <button class="btn btn-primary" type="submit">Save &amp; add people</button>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="panel p-4">
+      <h2 class="h6">Choose a layout</h2>
+      <p class="small text-secondary">Click a card to select it. You can still change copy after saving.</p>
+      <div class="d-grid gap-2" id="template-picker">
+        {% for t in templates %}
+          <button type="button" class="layout-option text-start" data-template-id="{{ t.pk }}">
+            <div class="layout-swatch" style="background:{{ t.preview_color }};"></div>
+            <div class="fw-semibold">{{ t.name }}</div>
+            <div class="small text-secondary">{{ t.description }}</div>
+          </button>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</form>
+{% endblock %}
+{% block extra_js %}
+<script>
+  const select = document.getElementById("id_template");
+  document.querySelectorAll("#template-picker [data-template-id]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (select) select.value = btn.dataset.templateId;
+      document.querySelectorAll("#template-picker .layout-option").forEach((el) => el.classList.remove("selected"));
+      btn.classList.add("selected");
+    });
+    if (select && select.value === btn.dataset.templateId) btn.classList.add("selected");
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,9 @@
+{{ html|json_script:sid }}
+<iframe id="{{ fid }}" class="{{ css|default:'preview-frame' }}" title="{{ title|default:'Email preview' }}" sandbox="allow-same-origin"></iframe>
+<script>
+(function () {
+  var data = document.getElementById("{{ sid }}");
+  var frame = document.getElementById("{{ fid }}");
+  if (data && frame) frame.srcdoc = JSON.parse(data.textContent);
+})();
+</script>

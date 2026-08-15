@@ -1,0 +1,71 @@
+{% extends "campaigns/base.html" %}
+{% block title %}{{ title }} · Innova CRM{% endblock %}
+{% block content %}
+<h1 class="page-title h3 mb-1">{{ title }}</h1>
+<p class="page-kicker mb-4">Choose a professional layout, give it a name, and optionally upload your logo. HTML is optional.</p>
+
+<form method="post" enctype="multipart/form-data">
+  {% csrf_token %}
+  {{ form.non_field_errors }}
+
+  {% if is_create %}
+  <div class="panel p-4 mb-4">
+    <h2 class="h6 mb-1">1. Start from a layout</h2>
+    <p class="small text-secondary mb-3">These are Gmail/Outlook-safe (tables + inline CSS). Pick one — you do not need to write HTML.</p>
+    <div class="layout-grid">
+      {% for item in layouts %}
+        <label class="layout-option">
+          <div class="layout-swatch" style="background: {{ item.preview_color }};"></div>
+          <input type="radio" name="layout" value="{{ item.slug }}" {% if form.layout.value == item.slug or not form.layout.value and item.slug == "newsletter" %}checked{% endif %}>
+          <strong>{{ item.name }}</strong>
+          <div class="small text-secondary mt-1">{{ item.description }}</div>
+        </label>
+      {% endfor %}
+    </div>
+    {{ form.layout.errors }}
+  </div>
+  {% endif %}
+
+  <div class="panel p-4 mb-4">
+    <h2 class="h6 mb-3">{% if is_create %}2. Name and branding{% else %}Template details{% endif %}</h2>
+    <div class="row g-3">
+      <div class="col-md-8">
+        <label class="form-label">Name</label>{{ form.name }}
+        {{ form.name.errors }}
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Accent color</label>{{ form.preview_color }}
+      </div>
+      <div class="col-12">
+        <label class="form-label">Description</label>{{ form.description }}
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Logo file</label>{{ form.logo }}
+        <div class="form-text">Embedded in outgoing mail so Gmail can show it.</div>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Public logo URL (optional)</label>{{ form.logo_url }}
+      </div>
+      <div class="col-12 form-check">{{ form.is_active }} <label class="form-check-label">Active</label></div>
+    </div>
+  </div>
+
+  <details class="panel p-4 mb-4" {% if not is_create %}open{% endif %}>
+    <summary class="fw-semibold mb-2">Advanced HTML (optional)</summary>
+    <p class="small text-secondary">Leave this empty on create — the selected layout is copied for you.</p>
+    {{ form.html_body }}
+    {{ form.html_body.errors }}
+    <div class="form-text mt-2">{% verbatim %}Placeholders: {{name}}, {{heading}}, {{body}}, {{logo_block}}, {{cta_block}}{% endverbatim %}</div>
+  </details>
+
+  {% if preview_html %}
+  <div class="panel p-3 mb-4">
+    <h2 class="h6 px-1">Live preview</h2>
+    {% include "campaigns/_email_preview.html" with html=preview_html sid="template-edit-preview" fid="template-edit-frame" css="preview-frame" title="Template preview" %}
+  </div>
+  {% endif %}
+
+  <button class="btn btn-primary" type="submit">Save template</button>
+  <a class="btn btn-outline-secondary" href="{% url 'campaigns:templates' %}">Back</a>
+</form>
+{% endblock %}

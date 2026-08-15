@@ -1,0 +1,33 @@
+{% extends "campaigns/base.html" %}
+{% block title %}Templates · Innova CRM{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <div>
+    <h1 class="page-title h3 mb-1">Email templates</h1>
+    <p class="page-kicker mb-0">Inbox-safe layouts with your logo. Pick one, then write your campaign copy.</p>
+  </div>
+  <a class="btn btn-primary" href="{% url 'campaigns:template_create' %}"><i class="bi bi-plus-lg"></i> New template</a>
+</div>
+
+<div class="row g-3">
+  {% for t in templates %}
+  <div class="col-md-6 col-xl-4">
+    <div class="template-card">
+      <div class="template-preview-wrap">
+        {% include "campaigns/_email_preview.html" with html=t.preview_html sid=t.preview_sid fid=t.preview_fid css="tpl-mini-preview" title=t.name %}
+      </div>
+      <div class="p-3 d-flex flex-column flex-grow-1">
+        <h2 class="h5 mb-1">{{ t.name }}</h2>
+        <p class="text-secondary small flex-grow-1">{{ t.description }}</p>
+        <div class="d-flex gap-2">
+          <a class="btn btn-primary btn-sm" href="{% url 'campaigns:create' %}?template={{ t.pk }}">Use in campaign</a>
+          <a class="btn btn-outline-secondary btn-sm" href="{% url 'campaigns:template_edit' t.pk %}">Edit / logo</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% empty %}
+    <p>No templates found. Refresh this page to load the starter layouts.</p>
+  {% endfor %}
+</div>
+{% endblock %}

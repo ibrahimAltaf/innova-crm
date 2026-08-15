@@ -1,0 +1,88 @@
+{% extends "campaigns/base.html" %}
+{% block title %}Pipeline · Innova CRM{% endblock %}
+{% block content %}
+{% csrf_token %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <div>
+    <h1 class="page-title h3 mb-1">Pipeline</h1>
+    <p class="page-kicker mb-0">Drag cards between stages. Won leads are saved as contacts.</p>
+  </div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary" href="{% url 'campaigns:leads' %}">Table view</a>
+    <a class="btn btn-primary" href="{% url 'campaigns:leads' %}">Add lead</a>
+  </div>
+</div>
+
+<div class="kanban" id="kanban">
+  {% for col in columns %}
+  <section class="kanban-col" data-status="{{ col.key }}">
+    <header class="kanban-col-head">
+      <div>
+        <strong>{{ col.label }}</strong>
+        <span class="text-secondary">{{ col.count }}</span>
+      </div>
+      <div class="small text-secondary">{{ col.value }}</div>
+    </header>
+    <div class="kanban-drop">
+      {% for lead in col.leads %}
+      <article class="kanban-card" draggable="true" data-id="{{ lead.pk }}">
+        <a href="{% url 'campaigns:lead_detail' lead.pk %}" class="fw-semibold text-decoration-none">{{ lead.name|default:lead.email }}</a>
+        <div class="small text-secondary">{{ lead.company|default:lead.email }}</div>
+        {% if lead.value %}
+          <div class="small fw-semibold mt-1">{{ lead.value }}</div>
+        {% endif %}
+        {% if lead.next_follow_up %}
+          <div class="small text-secondary">Follow-up {{ lead.next_follow_up }}</div>
+        {% endif %}
+      </article>
+      {% empty %}
+      <div class="kanban-empty">Drop leads here</div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const csrf = document.querySelector("[name=csrfmiddlewaretoken]").value;
+  let dragging = null;
+
+  document.querySelectorAll(".kanban-card").forEach((card) => {
+    card.addEventListener("dragstart", () => {
+      dragging = card;
+      card.classList.add("dragging");
+    });
+    card.addEventListener("dragend", () => {
+      card.classList.remove("dragging");
+      dragging = null;
+    });
+  });
+
+  document.querySelectorAll(".kanban-col").forEach((col) => {
+    col.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      col.classList.add("drag-over");
+    });
+    col.addEventListener("dragleave", () => col.classList.remove("drag-over"));
+    col.addEventListener("drop", async (event) => {
+      event.preventDefault();
+      col.classList.remove("drag-over");
+      if (!dragging) return;
+      const drop = col.querySelector(".kanban-drop");
+      const empty = drop.querySelector(".kanban-empty");
+      if (empty) empty.remove();
+      drop.prepend(dragging);
+      const id = dragging.dataset.id;
+      const status = col.dataset.status;
+      const res = await fetch(`/leads/${id}/move/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": csrf },
+        body: JSON.stringify({ status }),
+      });
+      if (!res.ok) window.location.reload();
+    });
+  });
+</script>
+{% endblock %}

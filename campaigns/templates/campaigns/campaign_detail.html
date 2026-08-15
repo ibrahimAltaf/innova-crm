@@ -1,0 +1,128 @@
+{% extends "campaigns/base.html" %}
+{% block title %}{{ campaign.name }} · Innova CRM{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-3">
+  <div>
+    <h1 class="page-title h3 mb-1">{{ campaign.name }}</h1>
+    <p class="page-kicker mb-0">
+      {{ campaign.template.name }}
+      · <span class="badge-status {{ campaign.status }}">{{ campaign.status }}</span>
+      · {{ campaign.total_recipients }} recipients
+    </p>
+  </div>
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-outline-secondary" href="{% url 'campaigns:edit' campaign.pk %}">Edit</a>
+    <a class="btn btn-outline-secondary" href="{% url 'campaigns:recipients' campaign.pk %}">Add people</a>
+    <a class="btn btn-outline-primary" target="_blank" href="{% url 'campaigns:preview' campaign.pk %}">Open preview</a>
+    {% if campaign.status != "sending" %}
+      {% if campaign.total_recipients %}
+      <form method="post" action="{% url 'campaigns:send' campaign.pk %}">
+        {% csrf_token %}
+        <button class="btn btn-success" type="submit"><i class="bi bi-send-fill"></i> {% if campaign.status == "completed" %}Send again{% else %}Send emails{% endif %}</button>
+      </form>
+      {% else %}
+      <a class="btn btn-success disabled" aria-disabled="true">Send emails</a>
+      {% endif %}
+    {% else %}
+    <form method="post" action="{% url 'campaigns:pause' campaign.pk %}">
+      {% csrf_token %}
+      <button class="btn btn-outline-danger" type="submit">Pause</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+{% if not campaign.total_recipients %}
+  <div class="alert alert-warning">Add people first, then Send will be enabled. <a href="{% url 'campaigns:recipients' campaign.pk %}" class="alert-link">Add leads / contacts / CSV</a></div>
+{% endif %}
+{% if campaign.status == "completed" %}
+  <div class="alert alert-info">This campaign already sent {{ campaign.sent_count }} emails. Use <strong>Send again</strong> to resend.</div>
+{% endif %}
+
+<div class="row g-4">
+  <div class="col-lg-6">
+    <div class="panel p-4 mb-4">
+      <div class="d-flex justify-content-between mb-2">
+        <strong>Send progress</strong>
+        <span id="progress-label">{{ campaign.progress_percent }}% · {{ campaign.status }}</span>
+      </div>
+      <div class="progress mb-3" style="height:10px;">
+        <div id="progress-bar" class="progress-bar" style="width: {{ campaign.progress_percent }}%"></div>
+      </div>
+      <div class="row text-center">
+        <div class="col"><div class="small text-secondary">Sent</div><div id="stat-sent" class="fw-bold">{{ campaign.sent_count }}</div></div>
+        <div class="col"><div class="small text-secondary">Failed</div><div id="stat-failed" class="fw-bold">{{ campaign.failed_count }}</div></div>
+        <div class="col"><div class="small text-secondary">Skipped</div><div id="stat-skipped" class="fw-bold">{{ campaign.skipped_count }}</div></div>
+        <div class="col"><div class="small text-secondary">Pending</div><div id="stat-pending" class="fw-bold">{{ campaign.pending_count }}</div></div>
+      </div>
+      {% if campaign.last_error %}
+        <div class="alert alert-warning mt-3 mb-0 small">Last error: {{ campaign.last_error }}</div>
+      {% endif %}
+    </div>
+
+    <div class="panel p-4 mb-4">
+      <h2 class="h6">Send a test first</h2>
+      <p class="small text-secondary">Check inbox and spam before a full send. Authenticated mail from your domain is what keeps it out of spam — not tricks.</p>
+      <form class="row g-2" method="post" action="{% url 'campaigns:test' campaign.pk %}">
+        {% csrf_token %}
+        <div class="col-md-8">{{ test_form.to_email }}</div>
+        <div class="col-md-4"><button class="btn btn-outline-primary w-100" type="submit">Send test</button></div>
+      </form>
+    </div>
+
+    <div class="panel p-4">
+      <h2 class="h6">Recipients (first 200)</h2>
+      {% if recipients %}
+      <div class="table-responsive" style="max-height:320px;">
+        <table class="table table-sm">
+          <thead><tr><th>Email</th><th>Name</th><th>Status</th></tr></thead>
+          <tbody>
+            {% for r in recipients %}
+            <tr>
+              <td>{{ r.email }}</td>
+              <td>{{ r.name }}</td>
+              <td class="text-capitalize">{{ r.status }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        <p class="text-secondary mb-0">No recipients yet.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="panel p-3">
+      <div class="d-flex justify-content-between align-items-center px-1 mb-2">
+        <h2 class="h6 mb-0">Live preview</h2>
+        <span class="small text-secondary">Exact email layout</span>
+      </div>
+      {% include "campaigns/_email_preview.html" with html=preview_html sid="campaign-preview-data" fid="campaign-preview-frame" css="preview-frame" title="Live preview" %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const campaignStatus = "{{ campaign.status }}";
+  async function poll() {
+    const res = await fetch("{% url 'campaigns:progress' campaign.pk %}");
+    const data = await res.json();
+    document.getElementById("progress-bar").style.width = data.percent + "%";
+    document.getElementById("progress-label").textContent = data.percent + "% · " + data.status;
+    document.getElementById("stat-sent").textContent = data.sent;
+    document.getElementById("stat-failed").textContent = data.failed;
+    document.getElementById("stat-skipped").textContent = data.skipped;
+    document.getElementById("stat-pending").textContent = data.pending;
+    if (data.status === "sending" || data.status === "queued") {
+      setTimeout(poll, 1500);
+    } else if (campaignStatus === "sending" && data.status === "completed") {
+      window.location.reload();
+    }
+  }
+  if (campaignStatus === "sending" || campaignStatus === "queued") poll();
+</script>
+{% endblock %}

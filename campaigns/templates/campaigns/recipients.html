@@ -1,0 +1,86 @@
+{% extends "campaigns/base.html" %}
+{% block title %}Recipients · {{ campaign.name }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <div>
+    <h1 class="page-title h3 mb-1">Add people to send</h1>
+    <p class="text-secondary mb-0">{{ campaign.name }} · {{ campaign.total_recipients }} already added</p>
+  </div>
+  <a class="btn btn-success" href="{% url 'campaigns:detail' campaign.pk %}">Continue to Send</a>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-6">
+    <div class="panel p-4 mb-4">
+      <h2 class="h6">From leads</h2>
+      {% if leads %}
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="from_leads">
+        <div class="table-responsive mb-3" style="max-height:220px;">
+          <table class="table table-sm">
+            <thead><tr><th></th><th>Email</th><th>Status</th></tr></thead>
+            <tbody>
+              {% for lead in leads %}
+              <tr>
+                <td><input class="form-check-input" type="checkbox" name="lead_ids" value="{{ lead.pk }}" checked></td>
+                <td>{{ lead.email }}</td>
+                <td class="text-capitalize">{{ lead.status }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <button class="btn btn-primary" type="submit">Add selected leads</button>
+      </form>
+      {% else %}
+        <p class="text-secondary mb-0">No leads. <a href="{% url 'campaigns:leads' %}">Import CSV first</a>.</p>
+      {% endif %}
+    </div>
+    <div class="panel p-4">
+      <h2 class="h6">From contacts</h2>
+      {% if contacts %}
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="from_contacts">
+        <div class="table-responsive mb-3" style="max-height:220px;">
+          <table class="table table-sm">
+            <thead><tr><th></th><th>Email</th><th>Name</th></tr></thead>
+            <tbody>
+              {% for c in contacts %}
+              <tr>
+                <td><input class="form-check-input" type="checkbox" name="contact_ids" value="{{ c.pk }}"></td>
+                <td>{{ c.email }}</td>
+                <td>{{ c.name }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <button class="btn btn-outline-primary" type="submit">Add selected contacts</button>
+      </form>
+      {% else %}
+        <p class="text-secondary mb-0">No saved contacts. <a href="{% url 'campaigns:contacts' %}">Add contacts first</a>.</p>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="panel p-4">
+      <h2 class="h6">CSV / paste</h2>
+      <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="mb-3">
+          <label class="form-label">Upload CSV</label>
+          {{ form.csv_file }}
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Or paste emails</label>
+          {{ form.paste_list }}
+        </div>
+        <button class="btn btn-outline-primary" type="submit">Import list</button>
+        <a class="btn btn-outline-secondary" href="{% url 'campaigns:detail' campaign.pk %}">Back</a>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
