@@ -169,6 +169,66 @@ class TemplateTests(TestCase):
         self.assertContains(preview, "Visible headline")
 
 
+class ContactBulkTests(TestCase):
+    def test_search_and_bulk_add(self):
+        ensure_templates()
+        tpl = EmailTemplate.objects.get(slug="newsletter")
+        campaign = Campaign.objects.create(
+            name="Outreach",
+            template=tpl,
+            subject="Hi",
+            heading="Hi",
+            body="Hello",
+        )
+        from campaigns.models import Contact
+
+        for i in range(30):
+            Contact.objects.create(email=f"user{i}@client.com", name=f"User {i}", company="Acme")
+        page = self.client.get(reverse("campaigns:contacts"), {"q": "user1"})
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "user1@client.com")
+        self.assertContains(page, "Select")
+        bulk = self.client.post(
+            reverse("campaigns:contacts_bulk_send"),
+            {"campaign_id": campaign.pk, "mode": "20", "q": ""},
+        )
+        self.assertEqual(bulk.status_code, 302)
+        campaign.refresh_from_db()
+        self.assertEqual(campaign.total_recipients, 20)
+        picked = self.client.post(
+            reverse("campaigns:recipients", args=[campaign.pk]),
+            {"action": "from_contacts", "mode": "50"},
+        )
+        self.assertEqual(picked.status_code, 302)
+        campaign.refresh_from_db()
+        self.assertEqual(campaign.total_recipients, 30)
+
+    def test_smtp_prefers_env_password(self):
+        from django.test import override_settings
+
+        from campaigns.mailer import smtp_kwargs
+        from campaigns.models import AppSettings
+
+        AppSettings.objects.create(
+            smtp_host="smtp.old.example",
+            smtp_user="old@example.com",
+            smtp_password="old-db-password",
+            from_email="old@example.com",
+        )
+        with override_settings(
+            EMAIL_HOST="smtp.hostinger.com",
+            EMAIL_PORT=465,
+            EMAIL_HOST_USER="info@innovafior.online",
+            EMAIL_HOST_PASSWORD="env-secret",
+            EMAIL_USE_SSL=True,
+            EMAIL_USE_TLS=False,
+        ):
+            kwargs = smtp_kwargs(AppSettings.load())
+        self.assertEqual(kwargs["password"], "env-secret")
+        self.assertEqual(kwargs["username"], "info@innovafior.online")
+        self.assertEqual(kwargs["host"], "smtp.hostinger.com")
+
+
 class PipelineTests(TestCase):
     def test_dashboard_pipeline_and_move(self):
         from campaigns.models import Activity, Lead

@@ -303,8 +303,9 @@ def build_message(campaign: Campaign, recipient: Recipient, app: AppSettings, co
 
 
 def save_copy_to_sent(app: AppSettings, raw_message: bytes) -> None:
-    user = app.smtp_user or dj_settings.EMAIL_HOST_USER
-    password = app.smtp_password or dj_settings.EMAIL_HOST_PASSWORD
+    kwargs = smtp_kwargs(app)
+    user = kwargs["username"]
+    password = kwargs["password"]
     context = ssl.create_default_context()
     try:
         client = imaplib.IMAP4_SSL("imap.hostinger.com", 993, timeout=8, ssl_context=context)
@@ -333,20 +334,28 @@ def save_copy_to_sent(app: AppSettings, raw_message: bytes) -> None:
 
 
 def smtp_kwargs(app: AppSettings) -> dict:
-    host = (app.smtp_host or dj_settings.EMAIL_HOST or "").strip()
-    password = (app.smtp_password or dj_settings.EMAIL_HOST_PASSWORD or "").strip()
-    use_ssl = app.smtp_use_ssl if app.smtp_host else dj_settings.EMAIL_USE_SSL
-    use_tls = app.smtp_use_tls if app.smtp_host else dj_settings.EMAIL_USE_TLS
-    if app.smtp_host:
-        use_ssl = bool(app.smtp_use_ssl)
-        use_tls = bool(app.smtp_use_tls)
+    env_host = (dj_settings.EMAIL_HOST or "").strip()
+    env_user = (dj_settings.EMAIL_HOST_USER or "").strip()
+    env_pass = (dj_settings.EMAIL_HOST_PASSWORD or "").strip()
+    if env_user and env_pass:
+        host = env_host if env_host and env_host != "localhost" else (app.smtp_host or "smtp.hostinger.com")
+        return {
+            "host": host,
+            "port": dj_settings.EMAIL_PORT or app.smtp_port or 465,
+            "username": env_user,
+            "password": env_pass,
+            "use_tls": bool(dj_settings.EMAIL_USE_TLS),
+            "use_ssl": bool(dj_settings.EMAIL_USE_SSL),
+            "timeout": 30,
+            "fail_silently": False,
+        }
     return {
-        "host": host,
+        "host": (app.smtp_host or env_host).strip(),
         "port": app.smtp_port or dj_settings.EMAIL_PORT,
-        "username": (app.smtp_user or dj_settings.EMAIL_HOST_USER or "").strip(),
-        "password": password,
-        "use_tls": use_tls,
-        "use_ssl": use_ssl,
+        "username": (app.smtp_user or env_user).strip(),
+        "password": (app.smtp_password or env_pass).strip(),
+        "use_tls": bool(app.smtp_use_tls),
+        "use_ssl": bool(app.smtp_use_ssl),
         "timeout": 30,
         "fail_silently": False,
     }
@@ -410,7 +419,7 @@ def prepare_campaign_for_send(campaign: Campaign) -> int:
     return campaign.recipients.filter(status=Recipient.Status.PENDING).count()
 
 
-def run_campaign(campaign_id: int) -> None:
+def run_campaign(campaign_id: int, limit: int | None = None) -> None:
     if campaign_id in _RUNNING:
         return
     with _SEND_LOCK:
@@ -429,6 +438,8 @@ def run_campaign(campaign_id: int) -> None:
         pending_ids = list(
             campaign.recipients.filter(status=Recipient.Status.PENDING).values_list("pk", flat=True)
         )
+        if limit:
+            pending_ids = pending_ids[: max(1, int(limit))]
         small = len(pending_ids) <= 25
         delay = 0.35 if small else max(0.05, float(app.delay_seconds or 0.6))
         batch_every = 10_000 if small else max(1, app.batch_pause_every)
@@ -459,8 +470,10 @@ def run_campaign(campaign_id: int) -> None:
 
         campaign.refresh_from_db()
         if campaign.status != Campaign.Status.PAUSED:
-            campaign.status = Campaign.Status.COMPLETED
-            campaign.finished_at = timezone.now()
+            still_pending = campaign.recipients.filter(status=Recipient.Status.PENDING).exists()
+            campaign.status = Campaign.Status.QUEUED if still_pending else Campaign.Status.COMPLETED
+            if not still_pending:
+                campaign.finished_at = timezone.now()
             campaign.save(update_fields=["status", "finished_at", "updated_at"])
     except Exception as exc:
         Campaign.objects.filter(pk=campaign_id).update(

@@ -283,13 +283,15 @@ class AppSettings(models.Model):
         }
         if obj:
             env_user = (dj.EMAIL_HOST_USER or "").strip()
-            if env_user and (not obj.smtp_password or (obj.smtp_user or "") != env_user):
-                obj.smtp_host = smtp["smtp_host"]
-                obj.smtp_port = smtp["smtp_port"]
+            env_pass = (dj.EMAIL_HOST_PASSWORD or "").strip()
+            if env_user and env_pass:
+                if smtp["smtp_host"] and smtp["smtp_host"] != "localhost":
+                    obj.smtp_host = smtp["smtp_host"]
+                    obj.smtp_port = smtp["smtp_port"]
+                    obj.smtp_use_tls = smtp["smtp_use_tls"]
+                    obj.smtp_use_ssl = smtp["smtp_use_ssl"]
                 obj.smtp_user = smtp["smtp_user"]
                 obj.smtp_password = smtp["smtp_password"]
-                obj.smtp_use_tls = smtp["smtp_use_tls"]
-                obj.smtp_use_ssl = smtp["smtp_use_ssl"]
                 if not obj.from_email:
                     obj.from_email = smtp["from_email"]
                 if not obj.from_name:

@@ -38,18 +38,28 @@
       {% endif %}
     </div>
     <div class="panel p-4">
-      <h2 class="h6">From contacts</h2>
+      <h2 class="h6">From contacts{% if contact_count %} · {{ contact_count }}{% endif %}</h2>
       {% if contacts %}
       <form method="post">
         {% csrf_token %}
         <input type="hidden" name="action" value="from_contacts">
-        <div class="table-responsive mb-3" style="max-height:220px;">
-          <table class="table table-sm">
-            <thead><tr><th></th><th>Email</th><th>Name</th></tr></thead>
+        <input type="hidden" name="q" id="contact-q-hidden" value="">
+        <input type="hidden" name="mode" id="contact-mode" value="selected">
+        <div class="d-flex flex-wrap gap-2 mb-2">
+          <input class="form-control form-control-sm" id="contact-filter" placeholder="Search this list" style="max-width:220px">
+          <button class="btn btn-sm btn-outline-secondary" type="button" data-n="20">20</button>
+          <button class="btn btn-sm btn-outline-secondary" type="button" data-n="50">50</button>
+          <button class="btn btn-sm btn-outline-secondary" type="button" data-n="100">100</button>
+          <button class="btn btn-sm btn-outline-secondary" type="button" data-n="500">500</button>
+          <button class="btn btn-sm btn-outline-secondary" type="button" data-n="all">All</button>
+        </div>
+        <div class="table-responsive mb-3" style="max-height:280px;">
+          <table class="table table-sm" id="contact-pick-table">
+            <thead><tr><th><input class="form-check-input" type="checkbox" id="contact-all"></th><th>Email</th><th>Name</th></tr></thead>
             <tbody>
               {% for c in contacts %}
-              <tr>
-                <td><input class="form-check-input" type="checkbox" name="contact_ids" value="{{ c.pk }}"></td>
+              <tr data-search="{{ c.email }} {{ c.name }}">
+                <td><input class="form-check-input contact-box" type="checkbox" name="contact_ids" value="{{ c.pk }}"></td>
                 <td>{{ c.email }}</td>
                 <td>{{ c.name }}</td>
               </tr>
@@ -83,4 +93,36 @@
     </div>
   </div>
 </div>
+{% endblock %}
+{% block extra_js %}
+<script>
+  function visibleBoxes() {
+    return [...document.querySelectorAll(".contact-box")].filter((el) => el.closest("tr").style.display !== "none");
+  }
+  function syncFilter() {
+    const hidden = document.getElementById("contact-q-hidden");
+    const live = document.getElementById("contact-filter");
+    if (hidden && live) hidden.value = live.value;
+  }
+  document.getElementById("contact-all")?.addEventListener("change", (e) => {
+    visibleBoxes().forEach((el) => { el.checked = e.target.checked; });
+    document.getElementById("contact-mode").value = "selected";
+  });
+  document.querySelectorAll("[data-n]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const n = btn.dataset.n;
+      document.getElementById("contact-mode").value = n;
+      syncFilter();
+      const boxes = visibleBoxes();
+      boxes.forEach((el, i) => { el.checked = n === "all" || i < Number(n); });
+    });
+  });
+  document.getElementById("contact-filter")?.addEventListener("input", (e) => {
+    const q = e.target.value.toLowerCase();
+    document.querySelectorAll("#contact-pick-table tbody tr").forEach((row) => {
+      row.style.display = (row.dataset.search || "").toLowerCase().includes(q) ? "" : "none";
+    });
+    syncFilter();
+  });
+</script>
 {% endblock %}

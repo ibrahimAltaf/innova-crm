@@ -1,13 +1,13 @@
 {% extends "campaigns/base.html" %}
 {% block title %}Contacts · Innova CRM{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
   <div>
     <h1 class="page-title h3 mb-1">Contacts</h1>
-    <p class="page-kicker mb-0">CSV import, paste list, or add one by one. Then attach them to a campaign.</p>
+    <p class="page-kicker mb-0">Search, select 20 / 50 / 100 / 500, then add to a campaign and send.</p>
   </div>
-  <form class="d-flex gap-2" method="get">
-    <input class="form-control" name="q" value="{{ q }}" placeholder="Search email or name">
+  <form class="d-flex gap-2" method="get" id="contact-search">
+    <input class="form-control" name="q" id="contact-q" value="{{ q }}" placeholder="Search email, name, company, phone" style="min-width:260px">
     <button class="btn btn-outline-secondary" type="submit">Search</button>
   </form>
 </div>
@@ -41,33 +41,128 @@
     </div>
   </div>
   <div class="col-lg-8">
-    <div class="panel p-4">
-      <h2 class="h6 mb-3">{{ contacts|length }} contacts</h2>
-      {% if contacts %}
-      <div class="table-responsive">
-        <table class="table align-middle">
-          <thead><tr><th>Email</th><th>Name</th><th>Company</th><th></th></tr></thead>
-          <tbody>
-            {% for c in contacts %}
-            <tr>
-              <td>{{ c.email }}</td>
-              <td>{{ c.name }}</td>
-              <td>{{ c.company }}</td>
-              <td class="text-end">
-                <form method="post" action="{% url 'campaigns:contact_delete' c.pk %}" onsubmit="return confirm('Remove this contact?');">
-                  {% csrf_token %}
-                  <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
-                </form>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+    <form method="post" action="{% url 'campaigns:contacts_bulk_send' %}" id="bulk-form">
+      {% csrf_token %}
+      <input type="hidden" name="q" value="{{ q }}">
+      <input type="hidden" name="mode" id="bulk-mode" value="selected">
+      <div class="panel p-4">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+          <h2 class="h6 mb-0">{{ contact_count }} contacts{% if q %} matching “{{ q }}”{% endif %}</h2>
+          <span class="small text-secondary" id="selected-count">0 selected</span>
+        </div>
+        <div class="bulk-bar mb-3">
+          <label class="form-label mb-1">Send from this list</label>
+          <div class="d-flex flex-wrap gap-2 align-items-center">
+            <select class="form-select" name="campaign_id" style="max-width:260px" required>
+              <option value="">Choose campaign…</option>
+              {% for c in campaigns %}
+                <option value="{{ c.pk }}">{{ c.name }} ({{ c.status }})</option>
+              {% endfor %}
+            </select>
+            <button class="btn btn-outline-secondary btn-sm" type="button" data-pick="20">20</button>
+            <button class="btn btn-outline-secondary btn-sm" type="button" data-pick="50">50</button>
+            <button class="btn btn-outline-secondary btn-sm" type="button" data-pick="100">100</button>
+            <button class="btn btn-outline-secondary btn-sm" type="button" data-pick="500">500</button>
+            <button class="btn btn-outline-secondary btn-sm" type="button" data-pick="all">All</button>
+            <button class="btn btn-outline-secondary btn-sm" type="button" id="pick-none">None</button>
+            <button class="btn btn-outline-primary" type="submit">Add to campaign</button>
+            <button class="btn btn-success" type="submit" name="send_now" value="1">Add &amp; send now</button>
+          </div>
+          <p class="form-text mb-0 mt-2">20 / 50 / 100 / 500 uses the current search. On the live site, about 20 emails send per click — press Send again for the next batch.</p>
+        </div>
+        {% if not campaigns %}
+          <div class="alert alert-warning">Create a campaign first (write the email), then come back and send to 20 / 50 / 100 / 500 contacts. <a href="{% url 'campaigns:create' %}">New campaign</a></div>
+        {% endif %}
+        {% if contacts %}
+        <div class="table-responsive">
+          <table class="table align-middle" id="contacts-table">
+            <thead>
+              <tr>
+                <th style="width:36px"><input class="form-check-input" type="checkbox" id="check-all"></th>
+                <th>Email</th>
+                <th>Name</th>
+                <th>Company</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for c in contacts %}
+              <tr class="contact-row" data-search="{{ c.email }} {{ c.name }} {{ c.company }} {{ c.phone }}">
+                <td><input class="form-check-input row-check" type="checkbox" name="contact_ids" value="{{ c.pk }}"></td>
+                <td>{{ c.email }}</td>
+                <td>{{ c.name }}</td>
+                <td>{{ c.company }}</td>
+                <td class="text-end">
+                  <button class="btn btn-sm btn-outline-danger" type="submit" form="del-{{ c.pk }}">Delete</button>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+          <p class="text-secondary mb-0">No contacts yet.</p>
+        {% endif %}
       </div>
-      {% else %}
-        <p class="text-secondary mb-0">No contacts yet.</p>
-      {% endif %}
-    </div>
+    </form>
+    {% for c in contacts %}
+    <form id="del-{{ c.pk }}" method="post" action="{% url 'campaigns:contact_delete' c.pk %}" onsubmit="return confirm('Remove this contact?');">{% csrf_token %}</form>
+    {% endfor %}
   </div>
 </div>
+{% endblock %}
+{% block extra_js %}
+<script>
+  const checks = () => [...document.querySelectorAll(".row-check")];
+  const visibleChecks = () => checks().filter((el) => el.closest("tr").style.display !== "none");
+  function updateCount() {
+    const n = checks().filter((el) => el.checked).length;
+    const label = document.getElementById("selected-count");
+    if (label) label.textContent = n + " selected";
+  }
+  function pickVisible(n) {
+    const rows = visibleChecks();
+    rows.forEach((el, i) => { el.checked = n === "all" || i < Number(n); });
+    document.getElementById("bulk-mode").value = "selected";
+    updateCount();
+  }
+  document.getElementById("check-all")?.addEventListener("change", (e) => {
+    visibleChecks().forEach((el) => { el.checked = e.target.checked; });
+    document.getElementById("bulk-mode").value = "selected";
+    updateCount();
+  });
+  document.getElementById("pick-none")?.addEventListener("click", () => {
+    checks().forEach((el) => { el.checked = false; });
+    document.getElementById("bulk-mode").value = "selected";
+    updateCount();
+  });
+  document.querySelectorAll("[data-pick]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const n = btn.dataset.pick;
+      const hiddenQ = document.querySelector("#bulk-form input[name=q]");
+      const live = document.getElementById("contact-q");
+      if (hiddenQ && live) hiddenQ.value = live.value;
+      document.getElementById("bulk-mode").value = n;
+      if (n === "all") pickVisible("all");
+      else pickVisible(n);
+    });
+  });
+  document.getElementById("bulk-form")?.addEventListener("submit", () => {
+    const hiddenQ = document.querySelector("#bulk-form input[name=q]");
+    const live = document.getElementById("contact-q");
+    if (hiddenQ && live) hiddenQ.value = live.value;
+    const mode = document.getElementById("bulk-mode").value;
+    if (["20", "50", "100", "500", "all"].includes(mode)) return;
+    document.getElementById("bulk-mode").value = "selected";
+  });
+  document.getElementById("contacts-table")?.addEventListener("change", updateCount);
+  const qLive = document.getElementById("contact-q");
+  qLive?.addEventListener("input", () => {
+    const q = qLive.value.toLowerCase();
+    document.querySelectorAll(".contact-row").forEach((row) => {
+      row.style.display = row.dataset.search.toLowerCase().includes(q) ? "" : "none";
+    });
+  });
+  updateCount();
+</script>
 {% endblock %}

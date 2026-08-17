@@ -9,6 +9,7 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.http import require_POST
 import csv
 import json
+import os
 
 from .catalog import DEFAULT_TEMPLATES
 from .analytics import dashboard_payload
@@ -31,6 +32,7 @@ from .mailer import (
     preview_sample_html,
     run_campaign,
     send_test,
+    smtp_kwargs,
     start_campaign_async,
 )
 from .models import Activity, AppSettings, Campaign, Contact, EmailTemplate, Lead, Recipient, Unsubscribe
@@ -153,8 +155,10 @@ def campaign_recipients(request, pk):
     leads = Lead.objects.exclude(status=Lead.Status.LOST)
     if request.method == "POST":
         if request.POST.get("action") == "from_contacts":
-            selected_ids = request.POST.getlist("contact_ids")
-            queryset = contacts.filter(pk__in=selected_ids) if selected_ids else contacts
+            queryset, mode = _contacts_from_post(request)
+            if mode == "selected" and not request.POST.getlist("contact_ids"):
+                messages.error(request, "Tick contacts or tap 20 / 50 / 100 / 500 first.")
+                return redirect("campaigns:recipients", pk=pk)
             added, skipped = add_contacts_to_campaign(campaign, queryset)
             messages.success(request, f"Added {added} from contacts. Skipped {skipped}.")
             return redirect("campaigns:detail", pk=campaign.pk)
@@ -221,8 +225,33 @@ def campaign_recipients(request, pk):
     return render(
         request,
         "campaigns/recipients.html",
-        {"campaign": campaign, "form": form, "contacts": contacts, "leads": leads},
+        {
+            "campaign": campaign,
+            "form": form,
+            "contacts": contacts[:1500],
+            "contact_count": contacts.count(),
+            "leads": leads,
+        },
     )
+
+
+def _contacts_from_post(request):
+    qs = Contact.objects.all()
+    q = (request.POST.get("q") or "").strip()
+    if q:
+        qs = qs.filter(
+            Q(email__icontains=q) | Q(name__icontains=q) | Q(company__icontains=q) | Q(phone__icontains=q)
+        )
+    mode = (request.POST.get("mode") or "selected").strip()
+    if mode == "selected":
+        return qs.filter(pk__in=request.POST.getlist("contact_ids")), mode
+    if mode != "all":
+        try:
+            limit = int(mode)
+        except ValueError:
+            limit = 50
+        qs = qs[: max(1, min(limit, 5000))]
+    return qs, mode
 
 
 def contacts_list(request):
@@ -237,12 +266,40 @@ def contacts_list(request):
     contacts = Contact.objects.all()
     q = (request.GET.get("q") or "").strip()
     if q:
-        contacts = contacts.filter(Q(email__icontains=q) | Q(name__icontains=q) | Q(company__icontains=q))
+        contacts = contacts.filter(
+            Q(email__icontains=q) | Q(name__icontains=q) | Q(company__icontains=q) | Q(phone__icontains=q)
+        )
+    contact_count = contacts.count()
     return render(
         request,
         "campaigns/contacts.html",
-        {"contacts": contacts, "form": form, "import_form": import_form, "q": q},
+        {
+            "contacts": contacts[:1500],
+            "contact_count": contact_count,
+            "form": form,
+            "import_form": import_form,
+            "q": q,
+            "campaigns": Campaign.objects.exclude(status=Campaign.Status.SENDING),
+        },
     )
+
+
+@require_POST
+def contacts_bulk_send(request):
+    campaign_id = (request.POST.get("campaign_id") or "").strip()
+    if not campaign_id:
+        messages.error(request, "Pick a campaign first, then choose 20 / 50 / 100 / 500.")
+        return redirect("campaigns:contacts")
+    campaign = get_object_or_404(Campaign, pk=campaign_id)
+    qs, mode = _contacts_from_post(request)
+    if mode == "selected" and not request.POST.getlist("contact_ids"):
+        messages.error(request, "Tick contacts or tap 20 / 50 / 100 / 500 first.")
+        return redirect("campaigns:contacts")
+    added, skipped = add_contacts_to_campaign(campaign, qs)
+    messages.success(request, f"Added {added} contacts to “{campaign.name}”. Skipped {skipped}.")
+    if request.POST.get("send_now") == "1" and added:
+        return campaign_send(request, campaign.pk)
+    return redirect("campaigns:detail", pk=campaign.pk)
 
 
 @require_POST
@@ -291,10 +348,11 @@ def campaign_send(request, pk):
         messages.error(request, "Add recipients before sending.")
         return redirect("campaigns:recipients", pk=pk)
     app = AppSettings.load()
-    if not (app.smtp_host or app.from_email):
-        messages.error(request, "Configure SMTP in Settings first.")
+    mail = smtp_kwargs(app)
+    if not (mail.get("host") and mail.get("username") and mail.get("password")):
+        messages.error(request, "Configure SMTP in Settings first, or set EMAIL_HOST_PASSWORD on Vercel.")
         return redirect("campaigns:settings")
-    if campaign.status == Campaign.Status.SENDING:
+    if campaign.status == Campaign.Status.SENDING and campaign.pk in _RUNNING:
         messages.info(request, "Already sending.")
         return redirect("campaigns:detail", pk=pk)
     pending = prepare_campaign_for_send(campaign)
@@ -303,12 +361,21 @@ def campaign_send(request, pk):
         return redirect("campaigns:detail", pk=pk)
     campaign.status = Campaign.Status.QUEUED
     campaign.save(update_fields=["status", "updated_at"])
+    on_vercel = bool(os.getenv("VERCEL"))
     if pending <= 25:
         run_campaign(campaign.pk)
         campaign.refresh_from_db()
         messages.success(
             request,
             f"Done. Sent {campaign.sent_count}, failed {campaign.failed_count}. Check inbox and Hostinger Sent.",
+        )
+    elif on_vercel:
+        run_campaign(campaign.pk, limit=20)
+        campaign.refresh_from_db()
+        left = campaign.pending_count
+        messages.success(
+            request,
+            f"Sent a batch of 20. Total sent {campaign.sent_count}, failed {campaign.failed_count}. {left} still waiting — press Send again.",
         )
     else:
         start_campaign_async(campaign.pk)

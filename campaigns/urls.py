@@ -40,6 +40,7 @@ urlpatterns = [
     path("templates/<int:pk>/edit/", views.template_edit, name="template_edit"),
     path("contacts/", views.contacts_list, name="contacts"),
     path("contacts/import/", views.contacts_import, name="contacts_import"),
+    path("contacts/bulk-send/", views.contacts_bulk_send, name="contacts_bulk_send"),
     path("contacts/<int:pk>/delete/", views.contact_delete, name="contact_delete"),
     path("statistics/", views.statistics, name="statistics"),
     path("settings/", views.settings_view, name="settings"),
