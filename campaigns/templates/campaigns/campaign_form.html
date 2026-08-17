@@ -2,7 +2,7 @@
 {% block title %}{{ title }} · Innova CRM{% endblock %}
 {% block content %}
 <h1 class="page-title h3 mb-1">{{ title }}</h1>
-<p class="page-kicker mb-4">Pick a layout, write a clear subject, then add people.</p>
+<p class="page-kicker mb-4">Pick a layout, write a clear subject, then add people. For copy-paste emails with photos, use the <a href="{% url 'campaigns:create' %}">Simple editor</a>.</p>
 <form method="post" class="row g-4">
   {% csrf_token %}
   <div class="col-lg-7">

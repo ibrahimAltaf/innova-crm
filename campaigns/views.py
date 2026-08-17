@@ -1,11 +1,13 @@
+from django.core.paginator import Paginator
 from django.contrib import messages
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.http import require_POST
+import csv
 import json
 
 from .catalog import DEFAULT_TEMPLATES
@@ -77,6 +79,8 @@ def campaign_list(request):
 
 def campaign_edit(request, pk):
     campaign = get_object_or_404(Campaign, pk=pk)
+    if campaign.editor_mode != Campaign.EditorMode.TEMPLATE:
+        return redirect("campaigns:editor_open", pk=pk)
     if campaign.status == Campaign.Status.SENDING:
         messages.warning(request, "Pause the campaign before editing.")
         return redirect("campaigns:detail", pk=pk)
@@ -112,7 +116,18 @@ def _complete_idle_campaign(campaign: Campaign) -> Campaign:
 def campaign_detail(request, pk):
     campaign = get_object_or_404(Campaign.objects.select_related("template"), pk=pk)
     campaign = _complete_idle_campaign(campaign)
-    recipients = campaign.recipients.all()[:200]
+    status = (request.GET.get("rstatus") or "").strip()
+    q = (request.GET.get("rq") or "").strip()
+    recipients_qs = campaign.recipients.all()
+    if status in {choice[0] for choice in Recipient.Status.choices}:
+        recipients_qs = recipients_qs.filter(status=status)
+    if q:
+        recipients_qs = recipients_qs.filter(Q(email__icontains=q) | Q(name__icontains=q) | Q(error_message__icontains=q))
+    recipients = Paginator(recipients_qs, 100).get_page(request.GET.get("page") or 1)
+    status_counts = {
+        row["status"]: row["n"]
+        for row in campaign.recipients.values("status").annotate(n=Count("id"))
+    }
     test_form = TestEmailForm()
     preview_html = preview_sample_html(campaign.template, campaign=campaign)
     return render(
@@ -121,6 +136,10 @@ def campaign_detail(request, pk):
         {
             "campaign": campaign,
             "recipients": recipients,
+            "recipient_status": status,
+            "recipient_q": q,
+            "recipient_total": recipients_qs.count(),
+            "status_counts": status_counts,
             "test_form": test_form,
             "preview_html": preview_html,
         },
@@ -334,6 +353,7 @@ def campaign_progress(request, pk):
             "total": campaign.total_recipients,
             "percent": campaign.progress_percent,
             "last_error": campaign.last_error,
+            "delivery_rate": campaign.delivery_rate,
         }
     )
 
@@ -345,7 +365,7 @@ def settings_view(request):
         form.save()
         messages.success(request, "Settings saved.")
         return redirect("campaigns:settings")
-    return render(request, "campaigns/settings.html", {"form": form})
+    return render(request, "campaigns/settings.html", {"form": form, "test_form": TestEmailForm(), "app": app})
 
 
 def leads_list(request):
@@ -567,3 +587,76 @@ def unsubscribe(request, token):
         status=Recipient.Status.SKIPPED, error_message="Unsubscribed"
     )
     return render(request, "campaigns/unsubscribe.html", {"email": recipient.email})
+
+
+@require_POST
+def campaign_retry_failed(request, pk):
+    campaign = get_object_or_404(Campaign, pk=pk)
+    if campaign.status == Campaign.Status.SENDING:
+        messages.info(request, "Already sending.")
+        return redirect("campaigns:detail", pk=pk)
+    failed = campaign.recipients.filter(status=Recipient.Status.FAILED)
+    count = failed.count()
+    if not count:
+        messages.info(request, "No failed emails to retry.")
+        return redirect("campaigns:detail", pk=pk)
+    failed.update(status=Recipient.Status.PENDING, error_message="")
+    campaign.failed_count = 0
+    campaign.last_error = ""
+    campaign.status = Campaign.Status.QUEUED
+    campaign.save(update_fields=["failed_count", "last_error", "status", "updated_at"])
+    if count <= 25:
+        run_campaign(campaign.pk)
+        campaign.refresh_from_db()
+        messages.success(request, f"Retried {count}. Sent {campaign.sent_count}, failed {campaign.failed_count}.")
+    else:
+        start_campaign_async(campaign.pk)
+        messages.success(request, f"Retrying {count} failed emails in the background.")
+    return redirect("campaigns:detail", pk=pk)
+
+
+def campaign_export(request, pk):
+    campaign = get_object_or_404(Campaign, pk=pk)
+    status = (request.GET.get("status") or "").strip()
+    qs = campaign.recipients.all()
+    if status in {choice[0] for choice in Recipient.Status.choices}:
+        qs = qs.filter(status=status)
+    response = HttpResponse(content_type="text/csv")
+    suffix = status or "all"
+    response["Content-Disposition"] = f'attachment; filename="campaign-{campaign.pk}-{suffix}.csv"'
+    writer = csv.writer(response)
+    writer.writerow(["email", "name", "company", "status", "error", "sent_at"])
+    for row in qs.iterator():
+        writer.writerow([row.email, row.name, row.company, row.status, row.error_message, row.sent_at or ""])
+    return response
+
+
+def statistics(request):
+    ensure_templates()
+    sent = Recipient.objects.filter(status=Recipient.Status.SENT).count()
+    failed = Recipient.objects.filter(status=Recipient.Status.FAILED).count()
+    pending = Recipient.objects.filter(status=Recipient.Status.PENDING).count()
+    skipped = Recipient.objects.filter(status=Recipient.Status.SKIPPED).count()
+    total = Recipient.objects.count()
+    attempted = sent + failed
+    campaigns = list(Campaign.objects.select_related("template")[:50])
+    recent_failed = list(
+        Recipient.objects.filter(status=Recipient.Status.FAILED)
+        .select_related("campaign")
+        .order_by("-id")[:25]
+    )
+    return render(
+        request,
+        "campaigns/statistics.html",
+        {
+            "sent": sent,
+            "failed": failed,
+            "pending": pending,
+            "skipped": skipped,
+            "total": total,
+            "attempted": attempted,
+            "delivery_rate": int((sent / attempted) * 100) if attempted else 0,
+            "campaigns": campaigns,
+            "recent_failed": recent_failed,
+        },
+    )

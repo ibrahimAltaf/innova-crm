@@ -1,0 +1,48 @@
+{% extends "campaigns/base.html" %}
+{% block title %}Create email · Innova CRM{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-2">
+  <div>
+    <h1 class="page-title h3 mb-1">Create from scratch</h1>
+    <p class="page-kicker mb-0">Pick an editor, paste or build the email, then add people and track sent vs failed.</p>
+  </div>
+  <a class="btn btn-outline-secondary" href="{% url 'campaigns:list' %}">All campaigns</a>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-lg-4">
+    <a class="choice-card" href="{% url 'campaigns:editor_dragdrop_new' %}">
+      <div class="choice-icon"><i class="bi bi-grid-3x3-gap"></i></div>
+      <h2>Drag and drop editor</h2>
+      <p>Create an on-brand email with reusable blocks — heading, text, image, button, divider.</p>
+    </a>
+  </div>
+  <div class="col-lg-4">
+    <a class="choice-card choice-card-featured" href="{% url 'campaigns:editor_simple_new' %}">
+      <div class="choice-icon"><i class="bi bi-file-earmark-text"></i></div>
+      <h2>Simple editor</h2>
+      <p>Create a text-based email with images. Copy and paste a full email with photos — formatting stays.</p>
+    </a>
+  </div>
+  <div class="col-lg-4">
+    <a class="choice-card" href="{% url 'campaigns:editor_html_new' %}">
+      <div class="choice-icon">&lt;&gt;</div>
+      <h2>HTML custom code</h2>
+      <p>Create a fully custom email with HTML. Live preview on the right as you type.</p>
+    </a>
+  </div>
+</div>
+
+<div class="panel p-4">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div>
+      <h2 class="h6 mb-1">Or start from a template</h2>
+      <p class="small text-secondary mb-0">26 inbox-safe layouts with your logo, heading, body, and button fields.</p>
+    </div>
+    <div class="d-flex gap-2">
+      <a class="btn btn-outline-primary" href="{% url 'campaigns:templates' %}">Browse templates</a>
+      <a class="btn btn-primary" href="{% url 'campaigns:create_template' %}">Use a template</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

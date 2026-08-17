@@ -19,6 +19,8 @@
           <th>Template</th>
           <th>Status</th>
           <th>People</th>
+          <th>Sent</th>
+          <th>Failed</th>
           <th></th>
         </tr>
       </thead>
@@ -26,9 +28,11 @@
         {% for c in campaigns %}
         <tr>
           <td class="fw-semibold">{{ c.name }}</td>
-          <td>{{ c.template.name }}</td>
+          <td>{{ c.template.name }}{% if c.editor_mode != "template" %} · {{ c.editor_label }}{% endif %}</td>
           <td><span class="badge-status {{ c.status }}">{{ c.status }}</span></td>
           <td>{{ c.total_recipients }}</td>
+          <td>{{ c.sent_count }}</td>
+          <td>{{ c.failed_count }}</td>
           <td class="text-end">
             <a class="btn btn-sm btn-outline-secondary" href="{% url 'campaigns:recipients' c.pk %}">People</a>
             <a class="btn btn-sm btn-primary" href="{% url 'campaigns:detail' c.pk %}">Open</a>

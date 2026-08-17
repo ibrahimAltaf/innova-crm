@@ -1,0 +1,20 @@
+{% extends "campaigns/editor_chrome.html" %}
+{% load static %}
+{% block title %}HTML editor{% endblock %}
+{% block editor_main %}
+<div class="html-split">
+  <div class="html-code-pane">
+    <div class="small text-secondary px-3 py-2 border-bottom">HTML custom code</div>
+    <textarea id="html-source" class="html-source" spellcheck="false" placeholder="<!DOCTYPE html>..."></textarea>
+  </div>
+  <div class="html-preview-pane">
+    <div class="small text-secondary px-3 py-2 border-bottom">Live preview</div>
+    <iframe id="html-live-frame" class="html-live-frame" title="HTML preview" sandbox="allow-same-origin"></iframe>
+  </div>
+</div>
+<p class="editor-hint">Paste a full HTML email or a fragment. Placeholders like {% verbatim %}{{name}}{% endverbatim %} and {% verbatim %}{{unsubscribe_url}}{% endverbatim %} are filled when sending.</p>
+{% endblock %}
+{% block extra_js %}
+<script src="{% static 'campaigns/js/editor-shared.js' %}"></script>
+<script src="{% static 'campaigns/js/html-editor.js' %}"></script>
+{% endblock %}

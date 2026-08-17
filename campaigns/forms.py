@@ -42,6 +42,8 @@ class CampaignForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["template"].queryset = EmailTemplate.objects.filter(is_active=True)
+        self.fields["heading"].required = True
+        self.fields["body"].required = True
 
 
 class RecipientUploadForm(forms.Form):

@@ -1,0 +1,47 @@
+{% extends "campaigns/editor_chrome.html" %}
+{% load static %}
+{% block title %}Simple editor{% endblock %}
+{% block editor_main %}
+<div class="rte-shell">
+  <div class="rte-toolbar" id="rte-toolbar">
+    <select data-cmd="fontName" title="Font">
+      <option value="Arial">Arial</option>
+      <option value="Georgia">Georgia</option>
+      <option value="Times New Roman">Times</option>
+      <option value="Trebuchet MS">Trebuchet</option>
+      <option value="Courier New">Courier</option>
+    </select>
+    <select data-cmd="fontSize" title="Size">
+      <option value="2">10</option>
+      <option value="3" selected>13</option>
+      <option value="4">16</option>
+      <option value="5">18</option>
+      <option value="6">24</option>
+    </select>
+    <span class="rte-sep"></span>
+    <button type="button" data-cmd="bold" title="Bold"><i class="bi bi-type-bold"></i></button>
+    <button type="button" data-cmd="italic" title="Italic"><i class="bi bi-type-italic"></i></button>
+    <button type="button" data-cmd="underline" title="Underline"><i class="bi bi-type-underline"></i></button>
+    <span class="rte-sep"></span>
+    <button type="button" data-cmd="justifyLeft" title="Align left"><i class="bi bi-text-left"></i></button>
+    <button type="button" data-cmd="justifyCenter" title="Align center"><i class="bi bi-text-center"></i></button>
+    <button type="button" data-cmd="justifyRight" title="Align right"><i class="bi bi-text-right"></i></button>
+    <span class="rte-sep"></span>
+    <button type="button" data-cmd="insertUnorderedList" title="Bullets"><i class="bi bi-list-ul"></i></button>
+    <button type="button" data-cmd="insertOrderedList" title="Numbers"><i class="bi bi-list-ol"></i></button>
+    <button type="button" data-cmd="createLink" title="Link"><i class="bi bi-link-45deg"></i></button>
+    <button type="button" id="rte-image" title="Insert image"><i class="bi bi-image"></i></button>
+    <input type="file" id="rte-file" accept="image/*" hidden>
+    <span class="rte-sep"></span>
+    <button type="button" data-cmd="undo" title="Undo"><i class="bi bi-arrow-counterclockwise"></i></button>
+    <button type="button" data-cmd="redo" title="Redo"><i class="bi bi-arrow-clockwise"></i></button>
+    <button type="button" data-cmd="removeFormat" title="Clear formatting"><i class="bi bi-eraser"></i></button>
+  </div>
+  <div id="rte-editor" class="rte-canvas" contenteditable="true" data-placeholder="Paste your email here — images and formatting are kept. Or start typing."></div>
+</div>
+<p class="editor-hint">Copy-paste from Gmail, Outlook, Word, or Brevo. Photos in the clipboard are saved inside the email.</p>
+{% endblock %}
+{% block extra_js %}
+<script src="{% static 'campaigns/js/editor-shared.js' %}"></script>
+<script src="{% static 'campaigns/js/simple-editor.js' %}"></script>
+{% endblock %}

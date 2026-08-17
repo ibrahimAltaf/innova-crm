@@ -20,7 +20,7 @@
         <h2 class="h5 mb-1">{{ t.name }}</h2>
         <p class="text-secondary small flex-grow-1">{{ t.description }}</p>
         <div class="d-flex gap-2">
-          <a class="btn btn-primary btn-sm" href="{% url 'campaigns:create' %}?template={{ t.pk }}">Use in campaign</a>
+          <a class="btn btn-primary btn-sm" href="{% url 'campaigns:create_template' %}?template={{ t.pk }}">Use in campaign</a>
           <a class="btn btn-outline-secondary btn-sm" href="{% url 'campaigns:template_edit' t.pk %}">Edit / logo</a>
         </div>
       </div>

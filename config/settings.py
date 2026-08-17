@@ -12,6 +12,8 @@ load_dotenv(BASE_DIR / ".env", override=True)
 
 SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-dev-only-change-me")
 DEBUG = os.getenv("DEBUG", "True").lower() in {"1", "true", "yes"}
+if os.getenv("VERCEL"):
+    DEBUG = os.getenv("DEBUG", "False").lower() in {"1", "true", "yes"}
 raw_hosts = os.getenv("ALLOWED_HOSTS", "").strip()
 if not raw_hosts or raw_hosts == "*":
     ALLOWED_HOSTS = ["*"]
@@ -23,6 +25,19 @@ else:
         ALLOWED_HOSTS.append("127.0.0.1")
     if "localhost" not in ALLOWED_HOSTS:
         ALLOWED_HOSTS.append("localhost")
+
+csrf_origins = os.getenv("CSRF_TRUSTED_ORIGINS", "").strip()
+if csrf_origins:
+    CSRF_TRUSTED_ORIGINS = [o.strip() for o in csrf_origins.split(",") if o.strip()]
+else:
+    CSRF_TRUSTED_ORIGINS = [
+        "https://*.vercel.app",
+        "https://innova-crm.vercel.app",
+    ]
+if os.getenv("SITE_URL", "").startswith("https://"):
+    origin = os.getenv("SITE_URL", "").rstrip("/")
+    if origin not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(origin)
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -150,6 +165,11 @@ EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True").lower() in {"1", "true", "yes
 EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "False").lower() in {"1", "true", "yes"}
 EMAIL_TIMEOUT = 30
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "noreply@localhost")
-DEFAULT_FROM_NAME = os.getenv("DEFAULT_FROM_NAME", "MailForge")
+DEFAULT_FROM_NAME = os.getenv("DEFAULT_FROM_NAME", "Innova Fior")
 REPLY_TO_EMAIL = os.getenv("REPLY_TO_EMAIL", DEFAULT_FROM_EMAIL)
 SITE_URL = os.getenv("SITE_URL", "http://127.0.0.1:8000").rstrip("/")
+if os.getenv("VERCEL") and not os.getenv("SITE_URL"):
+    vercel_url = os.getenv("VERCEL_PROJECT_PRODUCTION_URL") or os.getenv("VERCEL_URL") or ""
+    vercel_url = vercel_url.replace("https://", "").replace("http://", "").strip("/")
+    if vercel_url:
+        SITE_URL = f"https://{vercel_url}"

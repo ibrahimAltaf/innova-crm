@@ -1,3 +1,4 @@
+import base64
 import html as html_lib
 import imaplib
 import re
@@ -44,6 +45,95 @@ def _absolute_url(path_or_url: str) -> str:
 
 
 LOGO_CID = "brand-logo"
+_DATA_IMG_RE = re.compile(
+    r"""(<img\b[^>]*?\bsrc\s*=\s*["'])(data:image/([a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+))(["'])""",
+    re.I | re.S,
+)
+_FRAGMENT_SHELL = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{subject}}</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f6fb;font-family:Arial,Helvetica,sans-serif;">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">{{preheader}}</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6fb;padding:24px 12px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #e5e7eb;">
+          <tr>
+            <td style="padding:20px 32px 0;">{{logo_block}}</td>
+          </tr>
+          <tr>
+            <td style="padding:16px 32px 24px;font-size:15px;line-height:24px;color:#334155;">{{custom_html}}</td>
+          </tr>
+          <tr>
+            <td style="padding:16px 32px 28px;background:#f8fafc;border-top:1px solid #e5e7eb;font-size:12px;line-height:18px;color:#64748b;text-align:center;">
+              {{company_name}} · {{company_address}}<br>
+              <a href="{{unsubscribe_url}}" style="color:#64748b;text-decoration:underline;">Unsubscribe</a>
+              &nbsp;·&nbsp;
+              <a href="{{website_url}}" style="color:#64748b;text-decoration:underline;">Visit website</a>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+
+
+def _apply_placeholders(html: str, values: dict) -> str:
+    for key, value in values.items():
+        html = html.replace("{{" + key + "}}", value or "")
+    return html
+
+
+def _is_full_document(html: str) -> bool:
+    return bool(re.search(r"<html[\s>]", html or "", re.I))
+
+
+def _inject_unsubscribe(html: str, unsubscribe_url: str, app: AppSettings) -> str:
+    if not html:
+        return html
+    if unsubscribe_url and unsubscribe_url in html:
+        return html
+    if "{{unsubscribe_url}}" in html:
+        return html
+    footer = (
+        '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb;'
+        'font-size:12px;line-height:18px;color:#64748b;text-align:center;">'
+        f"{html_lib.escape(app.company_name)} · {html_lib.escape(app.company_address)}<br>"
+        f'<a href="{html_lib.escape(unsubscribe_url)}" style="color:#64748b;">Unsubscribe</a></div>'
+    )
+    if re.search(r"</body>", html, re.I):
+        return re.sub(r"</body>", footer + "</body>", html, count=1, flags=re.I)
+    return html + footer
+
+
+def attach_data_uri_images(html: str, msg: EmailMultiAlternatives) -> str:
+    counter = 0
+
+    def repl(match):
+        nonlocal counter
+        subtype = (match.group(3) or "png").lower().split("+")[0]
+        if subtype == "jpg":
+            subtype = "jpeg"
+        try:
+            raw = base64.b64decode(re.sub(r"\s+", "", match.group(4)))
+        except Exception:
+            return match.group(0)
+        counter += 1
+        cid_name = f"paste-img-{counter}"
+        image = MIMEImage(raw, _subtype=subtype)
+        image.add_header("Content-ID", f"<{cid_name}>")
+        image.add_header("Content-Disposition", "inline", filename=f"{cid_name}.{subtype}")
+        msg.attach(image)
+        msg.mixed_subtype = "related"
+        return f"{match.group(1)}cid:{cid_name}{match.group(5)}"
+
+    return _DATA_IMG_RE.sub(repl, html)
 
 
 def _resolve_logo_path(campaign: Campaign, app: AppSettings) -> Path | None:
@@ -112,7 +202,8 @@ def render_email_html(
             f"{html_lib.escape(campaign.cta_text)}</a>"
         )
 
-    body_html = _nl2br(campaign.body)
+    custom = (campaign.html_content or "").strip()
+    body_html = custom if custom else _nl2br(campaign.body)
     values = {
         "subject": campaign.subject,
         "preheader": campaign.preheader or campaign.subject,
@@ -132,12 +223,16 @@ def render_email_html(
         "image_block": image_block,
         "cta_block": cta_block,
         "logo_block": _logo_block(campaign, app, embed=embed_logo),
+        "custom_html": custom,
     }
 
+    if custom:
+        html = custom if _is_full_document(custom) else _FRAGMENT_SHELL.replace("{{custom_html}}", custom)
+        html = _inject_unsubscribe(html, unsubscribe_url, app)
+        return _apply_placeholders(html, values)
+
     html = campaign.template.html_body
-    for key, value in values.items():
-        html = html.replace("{{" + key + "}}", value)
-    return html
+    return _apply_placeholders(html, values)
 
 
 def preview_sample_html(template, app: AppSettings | None = None, campaign: Campaign | None = None) -> str:
@@ -191,6 +286,7 @@ def build_message(campaign: Campaign, recipient: Recipient, app: AppSettings, co
             "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
         },
     )
+    html = attach_data_uri_images(html, msg)
     msg.attach_alternative(html, "text/html")
     logo_path = _resolve_logo_path(campaign, app)
     if logo_path:
@@ -207,8 +303,8 @@ def build_message(campaign: Campaign, recipient: Recipient, app: AppSettings, co
 
 
 def save_copy_to_sent(app: AppSettings, raw_message: bytes) -> None:
-    user = dj_settings.EMAIL_HOST_USER or app.smtp_user
-    password = dj_settings.EMAIL_HOST_PASSWORD or app.smtp_password
+    user = app.smtp_user or dj_settings.EMAIL_HOST_USER
+    password = app.smtp_password or dj_settings.EMAIL_HOST_PASSWORD
     context = ssl.create_default_context()
     try:
         client = imaplib.IMAP4_SSL("imap.hostinger.com", 993, timeout=8, ssl_context=context)
@@ -237,14 +333,20 @@ def save_copy_to_sent(app: AppSettings, raw_message: bytes) -> None:
 
 
 def smtp_kwargs(app: AppSettings) -> dict:
-    password = dj_settings.EMAIL_HOST_PASSWORD or app.smtp_password
+    host = (app.smtp_host or dj_settings.EMAIL_HOST or "").strip()
+    password = (app.smtp_password or dj_settings.EMAIL_HOST_PASSWORD or "").strip()
+    use_ssl = app.smtp_use_ssl if app.smtp_host else dj_settings.EMAIL_USE_SSL
+    use_tls = app.smtp_use_tls if app.smtp_host else dj_settings.EMAIL_USE_TLS
+    if app.smtp_host:
+        use_ssl = bool(app.smtp_use_ssl)
+        use_tls = bool(app.smtp_use_tls)
     return {
-        "host": dj_settings.EMAIL_HOST or app.smtp_host,
-        "port": dj_settings.EMAIL_PORT or app.smtp_port,
-        "username": dj_settings.EMAIL_HOST_USER or app.smtp_user,
+        "host": host,
+        "port": app.smtp_port or dj_settings.EMAIL_PORT,
+        "username": (app.smtp_user or dj_settings.EMAIL_HOST_USER or "").strip(),
         "password": password,
-        "use_tls": dj_settings.EMAIL_USE_TLS if dj_settings.EMAIL_HOST else app.smtp_use_tls,
-        "use_ssl": dj_settings.EMAIL_USE_SSL if dj_settings.EMAIL_HOST else app.smtp_use_ssl,
+        "use_tls": use_tls,
+        "use_ssl": use_ssl,
         "timeout": 30,
         "fail_silently": False,
     }

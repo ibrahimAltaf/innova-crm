@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import editors, views
 
 app_name = "campaigns"
 
@@ -8,15 +8,25 @@ urlpatterns = [
     path("", views.dashboard, name="dashboard"),
     path("templates/", views.template_gallery, name="templates"),
     path("campaigns/", views.campaign_list, name="list"),
-    path("campaigns/new/", views.campaign_create, name="create"),
+    path("campaigns/new/", editors.campaign_picker, name="create"),
+    path("campaigns/new/template/", views.campaign_create, name="create_template"),
+    path("campaigns/new/simple/", editors.editor_simple, name="editor_simple_new"),
+    path("campaigns/new/html/", editors.editor_html, name="editor_html_new"),
+    path("campaigns/new/dragdrop/", editors.editor_dragdrop, name="editor_dragdrop_new"),
     path("campaigns/<int:pk>/", views.campaign_detail, name="detail"),
     path("campaigns/<int:pk>/edit/", views.campaign_edit, name="edit"),
+    path("campaigns/<int:pk>/editor/", editors.editor_open, name="editor_open"),
+    path("campaigns/<int:pk>/editor/simple/", editors.editor_simple, name="editor_simple"),
+    path("campaigns/<int:pk>/editor/html/", editors.editor_html, name="editor_html"),
+    path("campaigns/<int:pk>/editor/dragdrop/", editors.editor_dragdrop, name="editor_dragdrop"),
     path("campaigns/<int:pk>/preview/", views.campaign_preview, name="preview"),
     path("campaigns/<int:pk>/recipients/", views.campaign_recipients, name="recipients"),
     path("campaigns/<int:pk>/send/", views.campaign_send, name="send"),
     path("campaigns/<int:pk>/pause/", views.campaign_pause, name="pause"),
     path("campaigns/<int:pk>/test/", views.campaign_test, name="test"),
     path("campaigns/<int:pk>/progress/", views.campaign_progress, name="progress"),
+    path("campaigns/<int:pk>/retry-failed/", views.campaign_retry_failed, name="retry_failed"),
+    path("campaigns/<int:pk>/export/", views.campaign_export, name="export"),
     path("pipeline/", views.pipeline, name="pipeline"),
     path("leads/", views.leads_list, name="leads"),
     path("leads/import/", views.leads_import, name="leads_import"),
@@ -31,6 +41,8 @@ urlpatterns = [
     path("contacts/", views.contacts_list, name="contacts"),
     path("contacts/import/", views.contacts_import, name="contacts_import"),
     path("contacts/<int:pk>/delete/", views.contact_delete, name="contact_delete"),
+    path("statistics/", views.statistics, name="statistics"),
     path("settings/", views.settings_view, name="settings"),
+    path("settings/test/", editors.settings_test, name="settings_test"),
     path("unsubscribe/<str:token>/", views.unsubscribe, name="unsubscribe"),
 ]

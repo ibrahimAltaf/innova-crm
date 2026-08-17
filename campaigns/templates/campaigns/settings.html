@@ -40,12 +40,21 @@
       <p class="form-text">Default ~0.6s + 8s every 80 messages ≈ 25–40 minutes for 3000 emails. Faster bursts raise spam risk.</p>
       <button class="btn btn-primary" type="submit">Save settings</button>
     </form>
+    <div class="panel p-4 mt-3">
+      <h2 class="h6">Test this mailbox</h2>
+      <p class="small text-secondary">Sends one message from the saved SMTP user to confirm the app password works.</p>
+      <form class="row g-2" method="post" action="{% url 'campaigns:settings_test' %}">
+        {% csrf_token %}
+        <div class="col-md-8">{{ test_form.to_email }}</div>
+        <div class="col-md-4"><button class="btn btn-outline-primary w-100" type="submit">Send SMTP test</button></div>
+      </form>
+    </div>
   </div>
   <div class="col-lg-5">
     <div class="panel p-4 mb-3">
       <h2 class="h6">Recommended providers</h2>
       <ul class="small mb-0">
-        <li><strong>Hostinger mailbox</strong> — SMTP <code>smtp.hostinger.com</code>, port <strong>465</strong>, SSL on, TLS off. Username = full email.</li>
+        <li><strong>Hostinger mailbox</strong> — SMTP <code>smtp.hostinger.com</code>, port <strong>465</strong>, SSL on, TLS off. Username = full email. Current mailbox: <code>info@innovafior.online</code>.</li>
         <li>IMAP (<code>imap.hostinger.com</code>) is only for reading mail. This app needs SMTP.</li>
         <li>Hostinger daily send limits apply. For heavy 3000/day campaigns, Amazon SES / Brevo is more reliable.</li>
       </ul>

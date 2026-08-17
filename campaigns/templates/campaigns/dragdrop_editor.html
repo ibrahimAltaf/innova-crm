@@ -1,0 +1,24 @@
+{% extends "campaigns/editor_chrome.html" %}
+{% load static %}
+{% block title %}Drag and drop editor{% endblock %}
+{% block editor_main %}
+<div class="dd-shell">
+  <aside class="dd-palette">
+    <div class="nav-label text-secondary px-1">Blocks</div>
+    <button type="button" class="dd-add" data-type="heading"><i class="bi bi-type-h1"></i> Heading</button>
+    <button type="button" class="dd-add" data-type="text"><i class="bi bi-text-paragraph"></i> Text</button>
+    <button type="button" class="dd-add" data-type="image"><i class="bi bi-image"></i> Image</button>
+    <button type="button" class="dd-add" data-type="button"><i class="bi bi-ui-radios"></i> Button</button>
+    <button type="button" class="dd-add" data-type="divider"><i class="bi bi-dash-lg"></i> Divider</button>
+    <button type="button" class="dd-add" data-type="spacer"><i class="bi bi-arrows-vertical"></i> Spacer</button>
+  </aside>
+  <div class="dd-canvas-wrap">
+    <div id="dd-canvas" class="dd-canvas"></div>
+    <p class="editor-hint mb-0">Click a block to edit. Drag the handle to reorder. Images can be pasted or uploaded.</p>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script src="{% static 'campaigns/js/editor-shared.js' %}"></script>
+<script src="{% static 'campaigns/js/dragdrop-editor.js' %}"></script>
+{% endblock %}

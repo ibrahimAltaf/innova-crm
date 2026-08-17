@@ -16,7 +16,9 @@ def dashboard_payload():
     closed = Lead.objects.filter(status__in=[Lead.Status.WON, Lead.Status.LOST]).count()
     won = Lead.objects.filter(status=Lead.Status.WON).count()
     win_rate = int((won / closed) * 100) if closed else 0
-    emails_sent = sum(Campaign.objects.values_list("sent_count", flat=True)) or 0
+    emails_sent = Recipient.objects.filter(status=Recipient.Status.SENT).count()
+    emails_failed = Recipient.objects.filter(status=Recipient.Status.FAILED).count()
+    attempted = emails_sent + emails_failed
 
     funnel = []
     for key, label in Lead.Status.choices:
@@ -63,6 +65,8 @@ def dashboard_payload():
         "won_value": won_value,
         "win_rate": win_rate,
         "sent": emails_sent,
+        "failed": emails_failed,
+        "delivery_rate": int((emails_sent / attempted) * 100) if attempted else 0,
         "open": Lead.objects.filter(open_q).count(),
         "unsubscribed": Unsubscribe.objects.count(),
         "campaigns": Campaign.objects.count(),

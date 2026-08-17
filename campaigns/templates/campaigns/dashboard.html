@@ -15,7 +15,7 @@
 <div class="row g-3 mb-4">
   <div class="col-md-3"><div class="stat-card"><span>Open pipeline</span><strong>{{ stats.open }}</strong><div class="small text-secondary mt-1">{{ stats.pipeline }} value</div></div></div>
   <div class="col-md-3"><div class="stat-card"><span>Win rate</span><strong>{{ stats.win_rate }}%</strong><div class="small text-secondary mt-1">Won {{ stats.won_value }}</div></div></div>
-  <div class="col-md-3"><div class="stat-card"><span>Emails sent</span><strong>{{ stats.sent }}</strong><div class="small text-secondary mt-1">{{ stats.campaigns }} campaigns</div></div></div>
+  <div class="col-md-3"><div class="stat-card"><span>Emails sent</span><strong>{{ stats.sent }}</strong><div class="small text-secondary mt-1">{{ stats.failed }} failed · {{ stats.delivery_rate }}% delivered</div></div></div>
   <div class="col-md-3"><div class="stat-card"><span>People</span><strong>{{ stats.contacts }}</strong><div class="small text-secondary mt-1">{{ stats.leads }} leads</div></div></div>
 </div>
 
@@ -83,7 +83,7 @@
             <tr>
               <td class="fw-semibold">{{ c.name }}</td>
               <td><span class="badge-status {{ c.status }}">{{ c.status }}</span></td>
-              <td>{{ c.sent_count }} / {{ c.total_recipients }}</td>
+              <td>{{ c.sent_count }} sent / {{ c.failed_count }} failed</td>
               <td class="text-end"><a class="btn btn-sm btn-primary" href="{% url 'campaigns:detail' c.pk %}">Open</a></td>
             </tr>
             {% endfor %}

@@ -5,13 +5,13 @@
   <div>
     <h1 class="page-title h3 mb-1">{{ campaign.name }}</h1>
     <p class="page-kicker mb-0">
-      {{ campaign.template.name }}
+      {{ campaign.editor_label }}
       · <span class="badge-status {{ campaign.status }}">{{ campaign.status }}</span>
       · {{ campaign.total_recipients }} recipients
     </p>
   </div>
   <div class="d-flex flex-wrap gap-2">
-    <a class="btn btn-outline-secondary" href="{% url 'campaigns:edit' campaign.pk %}">Edit</a>
+    <a class="btn btn-outline-secondary" href="{% url 'campaigns:edit' campaign.pk %}">Edit email</a>
     <a class="btn btn-outline-secondary" href="{% url 'campaigns:recipients' campaign.pk %}">Add people</a>
     <a class="btn btn-outline-primary" target="_blank" href="{% url 'campaigns:preview' campaign.pk %}">Open preview</a>
     {% if campaign.status != "sending" %}
@@ -36,24 +36,35 @@
   <div class="alert alert-warning">Add people first, then Send will be enabled. <a href="{% url 'campaigns:recipients' campaign.pk %}" class="alert-link">Add leads / contacts / CSV</a></div>
 {% endif %}
 {% if campaign.status == "completed" %}
-  <div class="alert alert-info">This campaign already sent {{ campaign.sent_count }} emails. Use <strong>Send again</strong> to resend.</div>
+  <div class="alert alert-info">Sent {{ campaign.sent_count }} · failed {{ campaign.failed_count }} · skipped {{ campaign.skipped_count }}. Use <strong>Send again</strong> for everyone, or retry only the failed list.</div>
 {% endif %}
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-lg-3"><div class="stat-card stat-ok"><span>Sent</span><strong id="stat-sent">{{ campaign.sent_count }}</strong></div></div>
+  <div class="col-6 col-lg-3"><div class="stat-card stat-bad"><span>Failed</span><strong id="stat-failed">{{ campaign.failed_count }}</strong></div></div>
+  <div class="col-6 col-lg-3"><div class="stat-card"><span>Pending</span><strong id="stat-pending">{{ campaign.pending_count }}</strong></div></div>
+  <div class="col-6 col-lg-3"><div class="stat-card"><span>Delivery rate</span><strong id="stat-rate">{{ campaign.delivery_rate }}%</strong><div class="small text-secondary mt-1" id="progress-label">{{ campaign.progress_percent }}% processed · {{ campaign.status }}</div></div></div>
+</div>
 
 <div class="row g-4">
   <div class="col-lg-6">
     <div class="panel p-4 mb-4">
       <div class="d-flex justify-content-between mb-2">
         <strong>Send progress</strong>
-        <span id="progress-label">{{ campaign.progress_percent }}% · {{ campaign.status }}</span>
+        <span class="small text-secondary">{{ campaign.total_recipients }} total</span>
       </div>
       <div class="progress mb-3" style="height:10px;">
         <div id="progress-bar" class="progress-bar" style="width: {{ campaign.progress_percent }}%"></div>
       </div>
-      <div class="row text-center">
-        <div class="col"><div class="small text-secondary">Sent</div><div id="stat-sent" class="fw-bold">{{ campaign.sent_count }}</div></div>
-        <div class="col"><div class="small text-secondary">Failed</div><div id="stat-failed" class="fw-bold">{{ campaign.failed_count }}</div></div>
-        <div class="col"><div class="small text-secondary">Skipped</div><div id="stat-skipped" class="fw-bold">{{ campaign.skipped_count }}</div></div>
-        <div class="col"><div class="small text-secondary">Pending</div><div id="stat-pending" class="fw-bold">{{ campaign.pending_count }}</div></div>
+      <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-sm btn-outline-secondary" href="{% url 'campaigns:export' campaign.pk %}">Export all CSV</a>
+        <a class="btn btn-sm btn-outline-danger" href="{% url 'campaigns:export' campaign.pk %}?status=failed">Export failed</a>
+        {% if campaign.failed_count and campaign.status != "sending" %}
+        <form method="post" action="{% url 'campaigns:retry_failed' campaign.pk %}">
+          {% csrf_token %}
+          <button class="btn btn-sm btn-outline-primary" type="submit">Retry failed</button>
+        </form>
+        {% endif %}
       </div>
       {% if campaign.last_error %}
         <div class="alert alert-warning mt-3 mb-0 small">Last error: {{ campaign.last_error }}</div>
@@ -62,7 +73,7 @@
 
     <div class="panel p-4 mb-4">
       <h2 class="h6">Send a test first</h2>
-      <p class="small text-secondary">Check inbox and spam before a full send. Authenticated mail from your domain is what keeps it out of spam — not tricks.</p>
+      <p class="small text-secondary">Check inbox and spam before a full send.</p>
       <form class="row g-2" method="post" action="{% url 'campaigns:test' campaign.pk %}">
         {% csrf_token %}
         <div class="col-md-8">{{ test_form.to_email }}</div>
@@ -71,24 +82,47 @@
     </div>
 
     <div class="panel p-4">
-      <h2 class="h6">Recipients (first 200)</h2>
+      <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h2 class="h6 mb-0">Recipients</h2>
+        <form class="d-flex gap-2" method="get">
+          <input class="form-control form-control-sm" type="search" name="rq" value="{{ recipient_q }}" placeholder="Search email">
+          <button class="btn btn-sm btn-outline-secondary" type="submit">Search</button>
+        </form>
+      </div>
+      <div class="d-flex flex-wrap gap-2 mb-3">
+        <a class="btn btn-sm {% if not recipient_status %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?rq={{ recipient_q }}">All ({{ campaign.total_recipients }})</a>
+        <a class="btn btn-sm {% if recipient_status == 'sent' %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?rstatus=sent&rq={{ recipient_q }}">Sent ({{ status_counts.sent|default:0 }})</a>
+        <a class="btn btn-sm {% if recipient_status == 'failed' %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?rstatus=failed&rq={{ recipient_q }}">Failed ({{ status_counts.failed|default:0 }})</a>
+        <a class="btn btn-sm {% if recipient_status == 'pending' %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?rstatus=pending&rq={{ recipient_q }}">Pending ({{ status_counts.pending|default:0 }})</a>
+        <a class="btn btn-sm {% if recipient_status == 'skipped' %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?rstatus=skipped&rq={{ recipient_q }}">Skipped ({{ status_counts.skipped|default:0 }})</a>
+      </div>
       {% if recipients %}
-      <div class="table-responsive" style="max-height:320px;">
+      <div class="table-responsive" style="max-height:360px;">
         <table class="table table-sm">
-          <thead><tr><th>Email</th><th>Name</th><th>Status</th></tr></thead>
+          <thead><tr><th>Email</th><th>Name</th><th>Status</th><th>Error</th></tr></thead>
           <tbody>
             {% for r in recipients %}
             <tr>
               <td>{{ r.email }}</td>
               <td>{{ r.name }}</td>
-              <td class="text-capitalize">{{ r.status }}</td>
+              <td><span class="badge-status {{ r.status }}">{{ r.status }}</span></td>
+              <td class="small text-danger">{{ r.error_message|truncatechars:60 }}</td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
+      {% if recipients.has_other_pages %}
+      <div class="d-flex justify-content-between align-items-center mt-3">
+        <span class="small text-secondary">Page {{ recipients.number }} of {{ recipients.paginator.num_pages }} · {{ recipient_total }} rows</span>
+        <div class="d-flex gap-2">
+          {% if recipients.has_previous %}<a class="btn btn-sm btn-outline-secondary" href="?page={{ recipients.previous_page_number }}&rstatus={{ recipient_status }}&rq={{ recipient_q }}">Prev</a>{% endif %}
+          {% if recipients.has_next %}<a class="btn btn-sm btn-outline-secondary" href="?page={{ recipients.next_page_number }}&rstatus={{ recipient_status }}&rq={{ recipient_q }}">Next</a>{% endif %}
+        </div>
+      </div>
+      {% endif %}
       {% else %}
-        <p class="text-secondary mb-0">No recipients yet.</p>
+        <p class="text-secondary mb-0">No recipients in this filter.</p>
       {% endif %}
     </div>
   </div>
@@ -112,11 +146,11 @@
     const res = await fetch("{% url 'campaigns:progress' campaign.pk %}");
     const data = await res.json();
     document.getElementById("progress-bar").style.width = data.percent + "%";
-    document.getElementById("progress-label").textContent = data.percent + "% · " + data.status;
+    document.getElementById("progress-label").textContent = data.percent + "% processed · " + data.status;
     document.getElementById("stat-sent").textContent = data.sent;
     document.getElementById("stat-failed").textContent = data.failed;
-    document.getElementById("stat-skipped").textContent = data.skipped;
     document.getElementById("stat-pending").textContent = data.pending;
+    document.getElementById("stat-rate").textContent = (data.delivery_rate || 0) + "%";
     if (data.status === "sending" || data.status === "queued") {
       setTimeout(poll, 1500);
     } else if (campaignStatus === "sending" && data.status === "completed") {

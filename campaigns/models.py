@@ -31,12 +31,21 @@ class Campaign(models.Model):
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"
 
+    class EditorMode(models.TextChoices):
+        TEMPLATE = "template", "Template"
+        SIMPLE = "simple", "Simple editor"
+        HTML = "html", "HTML custom code"
+        DRAGDROP = "dragdrop", "Drag and drop"
+
     name = models.CharField(max_length=160)
     template = models.ForeignKey(EmailTemplate, on_delete=models.PROTECT, related_name="campaigns")
+    editor_mode = models.CharField(max_length=20, choices=EditorMode.choices, default=EditorMode.TEMPLATE)
+    html_content = models.TextField(blank=True, help_text="Full or fragment HTML from Simple / HTML / Drag-drop editors.")
+    blocks_json = models.JSONField(default=list, blank=True)
     subject = models.CharField(max_length=200)
     preheader = models.CharField(max_length=140, blank=True)
-    heading = models.CharField(max_length=200)
-    body = models.TextField()
+    heading = models.CharField(max_length=200, blank=True)
+    body = models.TextField(blank=True)
     cta_text = models.CharField(max_length=80, blank=True, default="Learn more")
     cta_url = models.URLField(blank=True)
     image_url = models.URLField(blank=True)
@@ -72,6 +81,21 @@ class Campaign(models.Model):
             return 0
         done = self.sent_count + self.failed_count + self.skipped_count
         return min(100, int((done / total) * 100))
+
+    @property
+    def attempted_count(self):
+        return self.sent_count + self.failed_count
+
+    @property
+    def delivery_rate(self):
+        attempted = self.attempted_count
+        if not attempted:
+            return 0
+        return int((self.sent_count / attempted) * 100)
+
+    @property
+    def editor_label(self):
+        return self.get_editor_mode_display()
 
 
 class Recipient(models.Model):
@@ -243,19 +267,51 @@ class AppSettings(models.Model):
 
     @classmethod
     def load(cls):
-        obj = cls.objects.first()
-        if obj:
-            return obj
         from django.conf import settings as dj
 
+        obj = cls.objects.first()
+        smtp = {
+            "smtp_host": dj.EMAIL_HOST or "smtp.hostinger.com",
+            "smtp_port": dj.EMAIL_PORT or 465,
+            "smtp_user": dj.EMAIL_HOST_USER,
+            "smtp_password": dj.EMAIL_HOST_PASSWORD,
+            "smtp_use_tls": dj.EMAIL_USE_TLS,
+            "smtp_use_ssl": dj.EMAIL_USE_SSL,
+            "from_email": dj.DEFAULT_FROM_EMAIL,
+            "from_name": dj.DEFAULT_FROM_NAME,
+            "reply_to": dj.REPLY_TO_EMAIL,
+        }
+        if obj:
+            env_user = (dj.EMAIL_HOST_USER or "").strip()
+            if env_user and (not obj.smtp_password or (obj.smtp_user or "") != env_user):
+                obj.smtp_host = smtp["smtp_host"]
+                obj.smtp_port = smtp["smtp_port"]
+                obj.smtp_user = smtp["smtp_user"]
+                obj.smtp_password = smtp["smtp_password"]
+                obj.smtp_use_tls = smtp["smtp_use_tls"]
+                obj.smtp_use_ssl = smtp["smtp_use_ssl"]
+                if not obj.from_email:
+                    obj.from_email = smtp["from_email"]
+                if not obj.from_name:
+                    obj.from_name = smtp["from_name"]
+                if not obj.reply_to:
+                    obj.reply_to = smtp["reply_to"]
+                obj.save(
+                    update_fields=[
+                        "smtp_host",
+                        "smtp_port",
+                        "smtp_user",
+                        "smtp_password",
+                        "smtp_use_tls",
+                        "smtp_use_ssl",
+                        "from_email",
+                        "from_name",
+                        "reply_to",
+                    ]
+                )
+            return obj
         return cls.objects.create(
-            smtp_host=dj.EMAIL_HOST,
-            smtp_port=dj.EMAIL_PORT,
-            smtp_user=dj.EMAIL_HOST_USER,
-            smtp_password=dj.EMAIL_HOST_PASSWORD,
-            smtp_use_tls=dj.EMAIL_USE_TLS,
-            smtp_use_ssl=dj.EMAIL_USE_SSL,
-            from_email=dj.DEFAULT_FROM_EMAIL,
-            from_name=dj.DEFAULT_FROM_NAME,
-            reply_to=dj.REPLY_TO_EMAIL,
+            **smtp,
+            company_name=dj.DEFAULT_FROM_NAME or "Your Company",
+            website_url="https://innovafior.online",
         )

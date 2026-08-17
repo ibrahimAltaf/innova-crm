@@ -62,6 +62,62 @@ class TemplateTests(TestCase):
         self.assertIn("{{heading}}", tpl.html_body)
         self.assertIn("{{unsubscribe_url}}", tpl.html_body)
 
+    def test_create_picker_and_simple_editor(self):
+        response = self.client.get(reverse("campaigns:create"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Simple editor")
+        self.assertContains(response, "HTML custom code")
+        self.assertContains(response, "Drag and drop editor")
+        save = self.client.post(
+            reverse("campaigns:editor_simple_new"),
+            {
+                "name": "Paste campaign",
+                "subject": "Please link your page",
+                "preheader": "A short inbox preview",
+                "html_content": "<p>Hi {{name}},</p><p><img src=\"data:image/png;base64,iVBORw0KGgo=\" alt=\"\"></p>",
+                "blocks_json": "[]",
+                "action": "quit",
+            },
+        )
+        self.assertEqual(save.status_code, 302)
+        campaign = Campaign.objects.get(name="Paste campaign")
+        self.assertEqual(campaign.editor_mode, "simple")
+        self.assertIn("<img", campaign.html_content)
+        detail = self.client.get(reverse("campaigns:detail", args=[campaign.pk]))
+        self.assertEqual(detail.status_code, 200)
+        self.assertContains(detail, "Sent")
+        self.assertContains(detail, "Failed")
+
+    def test_custom_html_render_and_cid(self):
+        from email.mime.multipart import MIMEMultipart
+
+        from campaigns.mailer import attach_data_uri_images, render_email_html
+        from campaigns.utils import ensure_custom_template
+
+        template = ensure_custom_template()
+        campaign = Campaign.objects.create(
+            name="HTML send",
+            template=template,
+            editor_mode="html",
+            subject="Hello",
+            heading="Hello",
+            html_content="<p>Hi {{name}}</p><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=\" alt=\"x\">",
+        )
+        recipient = Recipient(campaign=campaign, email="ana@example.com", name="Ana", unsubscribe_token="abc")
+        app = AppSettings(company_name="Acme", company_address="1 Street", website_url="https://example.com")
+        html = render_email_html(campaign, recipient, "https://example.com/unsub", app)
+        self.assertIn("Hi Ana", html)
+        self.assertIn("Unsubscribe", html)
+        msg = MIMEMultipart()
+        converted = attach_data_uri_images(html, msg)
+        self.assertIn("cid:paste-img-1", converted)
+        self.assertTrue(msg.get_payload())
+
+    def test_statistics_page(self):
+        response = self.client.get(reverse("campaigns:statistics"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Delivery statistics")
+
     def test_live_preview_renders(self):
         ensure_templates()
         tpl = EmailTemplate.objects.get(slug="newsletter")
