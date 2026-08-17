@@ -106,6 +106,19 @@ class TemplateTests(TestCase):
         payload = autosave.json()
         self.assertTrue(payload["ok"])
         self.assertTrue(payload["id"])
+        self.assertContains(detail, "Sent")
+        self.assertContains(detail, "Failed")
+
+    def test_html_and_dragdrop_editors_load(self):
+        html_page = self.client.get(reverse("campaigns:editor_html_new"))
+        self.assertEqual(html_page.status_code, 200)
+        self.assertContains(html_page, "HTML custom code")
+        blocks = self.client.get(reverse("campaigns:editor_dragdrop_new"))
+        self.assertEqual(blocks.status_code, 200)
+        self.assertContains(blocks, "Heading")
+        settings = self.client.get(reverse("campaigns:settings"))
+        self.assertEqual(settings.status_code, 200)
+        self.assertContains(settings, "SMTP")
 
     def test_custom_html_render_and_cid(self):
         from email.mime.multipart import MIMEMultipart
