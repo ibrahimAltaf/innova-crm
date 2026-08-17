@@ -2,8 +2,10 @@ import json
 
 from django.contrib import messages
 from django.core.mail import EmailMultiAlternatives, get_connection
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from .forms import TestEmailForm
@@ -105,6 +107,15 @@ def _editor_page(request, *, mode, pk, template_name):
         if action == "quit":
             messages.success(request, "Campaign saved. Add people, then send.")
             return redirect("campaigns:detail", pk=campaign.pk)
+        if action == "autosave":
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "id": campaign.pk,
+                    "url": _editor_url(mode, campaign.pk),
+                    "saved_at": timezone.localtime().strftime("%H:%M"),
+                }
+            )
         messages.success(request, "Draft saved.")
         return redirect(_editor_url(mode, campaign.pk))
 
@@ -120,8 +131,17 @@ def _editor_page(request, *, mode, pk, template_name):
             "preview_html": preview_html,
             "test_form": TestEmailForm(),
             "blocks_seed": [],
+            "autosave_url": _editor_url(mode, campaign.pk) if campaign else _editor_new_url(mode),
         },
     )
+
+
+def _editor_new_url(mode):
+    if mode == Campaign.EditorMode.HTML:
+        return reverse("campaigns:editor_html_new")
+    if mode == Campaign.EditorMode.DRAGDROP:
+        return reverse("campaigns:editor_dragdrop_new")
+    return reverse("campaigns:editor_simple_new")
 
 
 def _editor_url(mode, pk):

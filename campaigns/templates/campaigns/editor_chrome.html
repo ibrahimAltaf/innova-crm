@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="{% static 'campaigns/css/app.css' %}?v=7">
+  <link rel="stylesheet" href="{% static 'campaigns/css/app.css' %}?v=8">
 </head>
 <body class="editor-body {% block body_class %}{% endblock %}">
   {% if messages %}
@@ -23,17 +23,18 @@
       {% endfor %}
     </div>
   {% endif %}
-  <form method="post" id="editor-form" class="editor-app">
+  <form method="post" id="editor-form" class="editor-app" data-autosave-url="{{ autosave_url }}" data-campaign-id="{{ campaign.pk|default:'' }}">
     {% csrf_token %}
     <header class="editor-topbar">
       <div class="d-flex align-items-center gap-3 min-w-0">
-        <a class="editor-back" href="{% if campaign %}{% url 'campaigns:detail' campaign.pk %}{% else %}{% url 'campaigns:create' %}{% endif %}"><i class="bi bi-arrow-left"></i></a>
+        <a class="editor-back" href="{% if campaign %}{% url 'campaigns:detail' campaign.pk %}{% else %}{% url 'campaigns:create' %}{% endif %}" title="Back"><i class="bi bi-arrow-left"></i></a>
         <input class="editor-name" type="text" name="name" value="{{ campaign.name|default:'' }}" placeholder="Untitled campaign" maxlength="160">
+        <span class="save-pill" id="save-pill">Ready</span>
       </div>
       <div class="d-flex flex-wrap gap-2">
         <button class="btn btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#previewTestModal"><i class="bi bi-eye"></i> Preview &amp; Test</button>
         <button class="btn btn-outline-primary" type="submit" name="action" value="save">Save</button>
-        <button class="btn btn-primary" type="submit" name="action" value="quit">Save &amp; Quit</button>
+        <button class="btn btn-primary" type="submit" name="action" value="quit">Save &amp; continue</button>
       </div>
     </header>
     {% block editor_meta %}
@@ -65,10 +66,23 @@
       <div class="modal-content">
         <div class="modal-header">
           <h2 class="h5 mb-0">Preview &amp; Test</h2>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          <div class="d-flex gap-2">
+            <div class="btn-group btn-group-sm" role="group">
+              <button type="button" class="btn btn-outline-secondary active" id="preview-desktop">Desktop</button>
+              <button type="button" class="btn btn-outline-secondary" id="preview-mobile">Mobile</button>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
         </div>
         <div class="modal-body">
-          <iframe id="live-preview-frame" class="preview-frame" title="Email preview" sandbox="allow-same-origin"></iframe>
+          <div class="inbox-mock" id="inbox-mock">
+            <div class="inbox-mock-from">Innova Fior &lt;info@innovafior.online&gt;</div>
+            <div class="inbox-mock-subject" id="inbox-mock-subject">Subject</div>
+            <div class="inbox-mock-pre" id="inbox-mock-pre"></div>
+          </div>
+          <div class="preview-stage" id="preview-stage">
+            <iframe id="live-preview-frame" class="preview-frame" title="Email preview" sandbox="allow-same-origin"></iframe>
+          </div>
           <form method="post" class="row g-2 mt-3" id="test-inline-form">
             {% csrf_token %}
             <input type="hidden" name="action" value="test">
@@ -78,17 +92,51 @@
             <input type="hidden" name="html_content" id="test-html">
             <input type="hidden" name="blocks_json" id="test-blocks">
             <div class="col-md-8">
+              <label class="form-label small mb-1">Send a test to your inbox first</label>
               <input class="form-control" type="email" name="to_email" placeholder="you@yourdomain.com" required>
             </div>
-            <div class="col-md-4">
-              <button class="btn btn-outline-primary w-100" type="submit">Send test</button>
+            <div class="col-md-4 d-flex align-items-end">
+              <button class="btn btn-primary w-100" type="submit">Send test email</button>
             </div>
           </form>
-          <p class="form-text mb-0 mt-2">Saves the draft, then sends one test from your mailbox. Check inbox and spam.</p>
+          <p class="form-text mb-0 mt-2">Saves the draft, then sends one message. Check inbox and spam before a full send.</p>
         </div>
       </div>
     </div>
   </div>
+
+  <div class="modal fade" id="linkModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header"><h2 class="h5 mb-0">Add link</h2><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <label class="form-label">URL</label>
+          <input class="form-control" id="link-url" type="url" placeholder="https://">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-primary" id="link-apply">Add link</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="ctaModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header"><h2 class="h5 mb-0">Add button</h2><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="mb-3"><label class="form-label">Button text</label><input class="form-control" id="cta-text" value="Learn more"></div>
+          <div><label class="form-label">URL</label><input class="form-control" id="cta-url" type="url" placeholder="https://"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-primary" id="cta-apply">Insert button</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   {% block extra_js %}{% endblock %}
 </body>

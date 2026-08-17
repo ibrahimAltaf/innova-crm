@@ -8,7 +8,7 @@
 <input type="hidden" name="preheader" id="blog-preheader-sync" value="{{ campaign.preheader|default:'' }}">
 
 <div class="blog-toolbar" id="rte-toolbar">
-  <select data-cmd="formatBlock" title="Style">
+  <select data-cmd="formatBlock" title="Paragraph style">
     <option value="p">Paragraph</option>
     <option value="h1">Title</option>
     <option value="h2">Heading</option>
@@ -29,10 +29,10 @@
     <option value="6">Huge</option>
   </select>
   <span class="rte-sep"></span>
-  <button type="button" data-cmd="bold" title="Bold"><i class="bi bi-type-bold"></i></button>
-  <button type="button" data-cmd="italic" title="Italic"><i class="bi bi-type-italic"></i></button>
-  <button type="button" data-cmd="underline" title="Underline"><i class="bi bi-type-underline"></i></button>
-  <button type="button" data-cmd="strikeThrough" title="Strike"><i class="bi bi-type-strikethrough"></i></button>
+  <button type="button" data-cmd="bold" title="Bold (⌘B)"><i class="bi bi-type-bold"></i></button>
+  <button type="button" data-cmd="italic" title="Italic (⌘I)"><i class="bi bi-type-italic"></i></button>
+  <button type="button" data-cmd="underline" title="Underline (⌘U)"><i class="bi bi-type-underline"></i></button>
+  <button type="button" data-cmd="strikeThrough" title="Strikethrough"><i class="bi bi-type-strikethrough"></i></button>
   <label class="rte-color" title="Text color"><input type="color" id="rte-color" value="#334155"></label>
   <span class="rte-sep"></span>
   <button type="button" data-cmd="justifyLeft" title="Align left"><i class="bi bi-text-left"></i></button>
@@ -41,8 +41,9 @@
   <span class="rte-sep"></span>
   <button type="button" data-cmd="insertUnorderedList" title="Bullets"><i class="bi bi-list-ul"></i></button>
   <button type="button" data-cmd="insertOrderedList" title="Numbers"><i class="bi bi-list-ol"></i></button>
-  <button type="button" data-cmd="createLink" title="Link"><i class="bi bi-link-45deg"></i></button>
+  <button type="button" id="rte-link" title="Link"><i class="bi bi-link-45deg"></i></button>
   <button type="button" id="rte-image" title="Insert photo"><i class="bi bi-image"></i></button>
+  <button type="button" id="rte-cta" title="Button"><i class="bi bi-ui-radios"></i></button>
   <button type="button" data-cmd="insertHorizontalRule" title="Divider"><i class="bi bi-dash-lg"></i></button>
   <input type="file" id="rte-file" accept="image/*" hidden>
   <input type="file" id="cover-file" accept="image/*" hidden>
@@ -52,23 +53,62 @@
   <button type="button" data-cmd="removeFormat" title="Clear formatting"><i class="bi bi-eraser"></i></button>
 </div>
 
+<div class="blog-help" id="blog-help">
+  <strong>Tip:</strong> Write like a blog. Paste a full email with photos, or type <kbd>/</kbd> for insert.
+  <button type="button" class="btn-close btn-close-sm" id="blog-help-close" aria-label="Dismiss"></button>
+</div>
+
+<div class="inbox-live" id="inbox-live">
+  <div class="inbox-live-label">Inbox preview</div>
+  <div class="inbox-live-from">Innova Fior</div>
+  <div class="inbox-live-subject" id="inbox-live-subject">Title will show here</div>
+  <div class="inbox-live-pre" id="inbox-live-pre">Short intro shows next to the subject in Gmail</div>
+  <div class="inbox-live-count" id="subject-count">0 / 50</div>
+</div>
+
 <article class="blog-paper" id="blog-paper">
   <button type="button" class="blog-cover" id="blog-cover" title="Add a cover photo">
     <img id="blog-cover-img" alt="" hidden>
     <span class="blog-cover-empty" id="blog-cover-empty">
       <i class="bi bi-image"></i>
-      Add a cover photo — or paste / drop an image
+      <strong>Cover photo</strong>
+      Click, paste, or drop an image
     </span>
-    <span class="blog-cover-remove" id="blog-cover-remove" hidden>Remove cover</span>
+    <span class="blog-cover-remove" id="blog-cover-remove" hidden>Remove</span>
   </button>
   <input class="blog-title" id="blog-title" type="text" value="{{ campaign.subject|default:'' }}" placeholder="Title" maxlength="200" autocomplete="off">
-  <input class="blog-dek" id="blog-dek" type="text" value="{{ campaign.preheader|default:'' }}" placeholder="Write a short intro — this also shows as inbox preview text" maxlength="140" autocomplete="off">
+  <input class="blog-dek" id="blog-dek" type="text" value="{{ campaign.preheader|default:'' }}" placeholder="Short intro — also used as inbox preview text" maxlength="140" autocomplete="off">
+  <div class="personalize" id="personalize">
+    <span>Insert</span>
+    <button type="button" class="chip" data-token="{% verbatim %}{{name}}{% endverbatim %}">Name</button>
+    <button type="button" class="chip" data-token="{% verbatim %}{{company}}{% endverbatim %}">Company</button>
+    <button type="button" class="chip" data-token="{% verbatim %}{{email}}{% endverbatim %}">Email</button>
+    <button type="button" class="chip" id="chip-greeting">Hi there,</button>
+    <button type="button" class="chip" id="chip-photo">Photo</button>
+    <button type="button" class="chip" id="chip-button">Button</button>
+  </div>
   <div id="rte-editor" class="blog-body" contenteditable="true" data-placeholder="Start writing, or paste an email with photos. It keeps the layout — just like a blog post."></div>
 </article>
 
+<div class="slash-menu" id="slash-menu" hidden>
+  <button type="button" data-slash="h2">Heading</button>
+  <button type="button" data-slash="photo">Photo</button>
+  <button type="button" data-slash="button">Button</button>
+  <button type="button" data-slash="quote">Quote</button>
+  <button type="button" data-slash="hr">Divider</button>
+  <button type="button" data-slash="name">Recipient name</button>
+</div>
+
+<div class="img-toolbar" id="img-toolbar" hidden>
+  <button type="button" data-img="left">Left</button>
+  <button type="button" data-img="center">Center</button>
+  <button type="button" data-img="full">Full</button>
+  <button type="button" data-img="delete">Delete</button>
+</div>
+
 <div class="blog-status">
   <span id="blog-count">0 words</span>
-  <span>Paste from Word, Gmail, or Outlook · photos stay in the post</span>
+  <span>Autosaves · Cmd/Ctrl+S to save · Preview &amp; Test before sending</span>
 </div>
 {% endblock %}
 {% block extra_js %}

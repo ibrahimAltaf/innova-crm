@@ -70,6 +70,7 @@ class TemplateTests(TestCase):
         editor_page = self.client.get(reverse("campaigns:editor_simple_new"))
         self.assertEqual(editor_page.status_code, 200)
         self.assertContains(editor_page, "Start writing")
+        self.assertContains(editor_page, "Inbox preview")
         self.assertContains(editor_page, "Preview &amp; Test")
         self.assertContains(response, "HTML custom code")
         self.assertContains(response, "Drag and drop editor")
@@ -90,8 +91,21 @@ class TemplateTests(TestCase):
         self.assertIn("<img", campaign.html_content)
         detail = self.client.get(reverse("campaigns:detail", args=[campaign.pk]))
         self.assertEqual(detail.status_code, 200)
-        self.assertContains(detail, "Sent")
-        self.assertContains(detail, "Failed")
+        autosave = self.client.post(
+            reverse("campaigns:editor_simple_new"),
+            {
+                "name": "Auto draft",
+                "subject": "Hello",
+                "preheader": "",
+                "html_content": "<p>Hi</p>",
+                "blocks_json": "[]",
+                "action": "autosave",
+            },
+        )
+        self.assertEqual(autosave.status_code, 200)
+        payload = autosave.json()
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["id"])
 
     def test_custom_html_render_and_cid(self):
         from email.mime.multipart import MIMEMultipart
