@@ -66,6 +66,11 @@ class TemplateTests(TestCase):
         response = self.client.get(reverse("campaigns:create"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Simple editor")
+        self.assertContains(response, "blog post")
+        editor_page = self.client.get(reverse("campaigns:editor_simple_new"))
+        self.assertEqual(editor_page.status_code, 200)
+        self.assertContains(editor_page, "Start writing")
+        self.assertContains(editor_page, "Preview &amp; Test")
         self.assertContains(response, "HTML custom code")
         self.assertContains(response, "Drag and drop editor")
         save = self.client.post(

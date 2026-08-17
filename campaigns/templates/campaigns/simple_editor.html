@@ -1,45 +1,75 @@
 {% extends "campaigns/editor_chrome.html" %}
 {% load static %}
 {% block title %}Simple editor{% endblock %}
+{% block body_class %}is-blog{% endblock %}
+{% block editor_meta %}{% endblock %}
 {% block editor_main %}
-<div class="rte-shell">
-  <div class="rte-toolbar" id="rte-toolbar">
-    <select data-cmd="fontName" title="Font">
-      <option value="Arial">Arial</option>
-      <option value="Georgia">Georgia</option>
-      <option value="Times New Roman">Times</option>
-      <option value="Trebuchet MS">Trebuchet</option>
-      <option value="Courier New">Courier</option>
-    </select>
-    <select data-cmd="fontSize" title="Size">
-      <option value="2">10</option>
-      <option value="3" selected>13</option>
-      <option value="4">16</option>
-      <option value="5">18</option>
-      <option value="6">24</option>
-    </select>
-    <span class="rte-sep"></span>
-    <button type="button" data-cmd="bold" title="Bold"><i class="bi bi-type-bold"></i></button>
-    <button type="button" data-cmd="italic" title="Italic"><i class="bi bi-type-italic"></i></button>
-    <button type="button" data-cmd="underline" title="Underline"><i class="bi bi-type-underline"></i></button>
-    <span class="rte-sep"></span>
-    <button type="button" data-cmd="justifyLeft" title="Align left"><i class="bi bi-text-left"></i></button>
-    <button type="button" data-cmd="justifyCenter" title="Align center"><i class="bi bi-text-center"></i></button>
-    <button type="button" data-cmd="justifyRight" title="Align right"><i class="bi bi-text-right"></i></button>
-    <span class="rte-sep"></span>
-    <button type="button" data-cmd="insertUnorderedList" title="Bullets"><i class="bi bi-list-ul"></i></button>
-    <button type="button" data-cmd="insertOrderedList" title="Numbers"><i class="bi bi-list-ol"></i></button>
-    <button type="button" data-cmd="createLink" title="Link"><i class="bi bi-link-45deg"></i></button>
-    <button type="button" id="rte-image" title="Insert image"><i class="bi bi-image"></i></button>
-    <input type="file" id="rte-file" accept="image/*" hidden>
-    <span class="rte-sep"></span>
-    <button type="button" data-cmd="undo" title="Undo"><i class="bi bi-arrow-counterclockwise"></i></button>
-    <button type="button" data-cmd="redo" title="Redo"><i class="bi bi-arrow-clockwise"></i></button>
-    <button type="button" data-cmd="removeFormat" title="Clear formatting"><i class="bi bi-eraser"></i></button>
-  </div>
-  <div id="rte-editor" class="rte-canvas" contenteditable="true" data-placeholder="Paste your email here — images and formatting are kept. Or start typing."></div>
+<input type="hidden" name="subject" id="blog-subject-sync" value="{{ campaign.subject|default:'' }}">
+<input type="hidden" name="preheader" id="blog-preheader-sync" value="{{ campaign.preheader|default:'' }}">
+
+<div class="blog-toolbar" id="rte-toolbar">
+  <select data-cmd="formatBlock" title="Style">
+    <option value="p">Paragraph</option>
+    <option value="h1">Title</option>
+    <option value="h2">Heading</option>
+    <option value="h3">Subheading</option>
+    <option value="blockquote">Quote</option>
+  </select>
+  <select data-cmd="fontName" title="Font">
+    <option value="Arial">Arial</option>
+    <option value="Georgia">Georgia</option>
+    <option value="Times New Roman">Times</option>
+    <option value="Trebuchet MS">Trebuchet</option>
+  </select>
+  <select data-cmd="fontSize" title="Size">
+    <option value="2">Small</option>
+    <option value="3" selected>Normal</option>
+    <option value="4">Large</option>
+    <option value="5">XL</option>
+    <option value="6">Huge</option>
+  </select>
+  <span class="rte-sep"></span>
+  <button type="button" data-cmd="bold" title="Bold"><i class="bi bi-type-bold"></i></button>
+  <button type="button" data-cmd="italic" title="Italic"><i class="bi bi-type-italic"></i></button>
+  <button type="button" data-cmd="underline" title="Underline"><i class="bi bi-type-underline"></i></button>
+  <button type="button" data-cmd="strikeThrough" title="Strike"><i class="bi bi-type-strikethrough"></i></button>
+  <label class="rte-color" title="Text color"><input type="color" id="rte-color" value="#334155"></label>
+  <span class="rte-sep"></span>
+  <button type="button" data-cmd="justifyLeft" title="Align left"><i class="bi bi-text-left"></i></button>
+  <button type="button" data-cmd="justifyCenter" title="Align center"><i class="bi bi-text-center"></i></button>
+  <button type="button" data-cmd="justifyRight" title="Align right"><i class="bi bi-text-right"></i></button>
+  <span class="rte-sep"></span>
+  <button type="button" data-cmd="insertUnorderedList" title="Bullets"><i class="bi bi-list-ul"></i></button>
+  <button type="button" data-cmd="insertOrderedList" title="Numbers"><i class="bi bi-list-ol"></i></button>
+  <button type="button" data-cmd="createLink" title="Link"><i class="bi bi-link-45deg"></i></button>
+  <button type="button" id="rte-image" title="Insert photo"><i class="bi bi-image"></i></button>
+  <button type="button" data-cmd="insertHorizontalRule" title="Divider"><i class="bi bi-dash-lg"></i></button>
+  <input type="file" id="rte-file" accept="image/*" hidden>
+  <input type="file" id="cover-file" accept="image/*" hidden>
+  <span class="rte-sep"></span>
+  <button type="button" data-cmd="undo" title="Undo"><i class="bi bi-arrow-counterclockwise"></i></button>
+  <button type="button" data-cmd="redo" title="Redo"><i class="bi bi-arrow-clockwise"></i></button>
+  <button type="button" data-cmd="removeFormat" title="Clear formatting"><i class="bi bi-eraser"></i></button>
 </div>
-<p class="editor-hint">Copy-paste from Gmail, Outlook, Word, or Brevo. Photos in the clipboard are saved inside the email.</p>
+
+<article class="blog-paper" id="blog-paper">
+  <button type="button" class="blog-cover" id="blog-cover" title="Add a cover photo">
+    <img id="blog-cover-img" alt="" hidden>
+    <span class="blog-cover-empty" id="blog-cover-empty">
+      <i class="bi bi-image"></i>
+      Add a cover photo — or paste / drop an image
+    </span>
+    <span class="blog-cover-remove" id="blog-cover-remove" hidden>Remove cover</span>
+  </button>
+  <input class="blog-title" id="blog-title" type="text" value="{{ campaign.subject|default:'' }}" placeholder="Title" maxlength="200" autocomplete="off">
+  <input class="blog-dek" id="blog-dek" type="text" value="{{ campaign.preheader|default:'' }}" placeholder="Write a short intro — this also shows as inbox preview text" maxlength="140" autocomplete="off">
+  <div id="rte-editor" class="blog-body" contenteditable="true" data-placeholder="Start writing, or paste an email with photos. It keeps the layout — just like a blog post."></div>
+</article>
+
+<div class="blog-status">
+  <span id="blog-count">0 words</span>
+  <span>Paste from Word, Gmail, or Outlook · photos stay in the post</span>
+</div>
 {% endblock %}
 {% block extra_js %}
 <script src="{% static 'campaigns/js/editor-shared.js' %}"></script>
