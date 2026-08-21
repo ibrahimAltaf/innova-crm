@@ -367,6 +367,7 @@ class PipelineTests(AuthMixin, TestCase):
         self.assertContains(page, "Send 100")
         self.assertContains(page, "Send 500")
         with patch("campaigns.views.run_campaign") as run:
+            run.return_value = 3
             response = self.client.post(
                 reverse("campaigns:send", args=[campaign.pk]),
                 {"batch": "100"},
@@ -378,3 +379,40 @@ class PipelineTests(AuthMixin, TestCase):
         self.assertTrue(data["ok"])
         self.assertEqual(data["batch"], 100)
         run.assert_called_once_with(campaign.pk, limit=3)
+
+    def test_hostinger_rate_limit_retries_same_address(self):
+        from unittest.mock import MagicMock, patch
+
+        from campaigns.mailer import hostinger_burst_size, run_campaign
+        from django.utils import timezone
+
+        self.assertEqual(hostinger_burst_size(0, 500), 20)
+        self.assertEqual(hostinger_burst_size(1, 500), 28)
+        self.assertLessEqual(hostinger_burst_size(0, 500), 30)
+
+        ensure_templates()
+        tpl = EmailTemplate.objects.get(slug="newsletter")
+        campaign = Campaign.objects.create(name="Rate", template=tpl, subject="Hi", heading="Hi", body="Body")
+        row = Recipient.objects.create(campaign=campaign, email="ok@client.com", name="Ok")
+        calls = {"n": 0}
+
+        def fake_send(_campaign, recipient, _app, _connection):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError('451 4.7.1 Ratelimit "hostinger_out_ratelimit" exceeded')
+            recipient.status = Recipient.Status.SENT
+            recipient.sent_at = timezone.now()
+            recipient.error_message = ""
+            recipient.save(update_fields=["status", "sent_at", "error_message"])
+            _campaign.sent_count += 1
+            _campaign.save(update_fields=["sent_count", "updated_at"])
+
+        with patch("campaigns.mailer._open_smtp", return_value=MagicMock()), patch(
+            "campaigns.mailer.send_one", side_effect=fake_send
+        ), patch("campaigns.mailer.time.sleep"):
+            processed = run_campaign(campaign.pk)
+
+        row.refresh_from_db()
+        self.assertEqual(processed, 1)
+        self.assertEqual(row.status, Recipient.Status.SENT)
+        self.assertGreaterEqual(calls["n"], 2)

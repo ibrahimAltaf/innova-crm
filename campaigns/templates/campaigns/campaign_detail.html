@@ -43,7 +43,7 @@
 {% if campaign.status == "completed" %}
   <div class="alert alert-info">Sent {{ campaign.sent_count }} · failed {{ campaign.failed_count }} · skipped {{ campaign.skipped_count }}. Use <strong>Send 20 / 100 / 500</strong> again, or retry only the failed list.</div>
 {% elif campaign.pending_count %}
-  <div class="alert alert-warning" id="batch-waiting">{{ campaign.pending_count }} still waiting. Pick <strong>Send 20</strong>, <strong>100</strong>, or <strong>500</strong> for the next batch. Status updates live while a batch is sending.</div>
+  <div class="alert alert-warning" id="batch-waiting">{{ campaign.pending_count }} still waiting. Click <strong>Send 20 / 100 / 500</strong> — the app splits it into small Hostinger-safe bursts (20–30) with pauses so rate-limit na aaye. Thora wait zyada lagega.</div>
 {% endif %}
 
 <div class="row g-3 mb-4">
@@ -153,7 +153,12 @@
   const progressUrl = "{% url 'campaigns:progress' campaign.pk %}";
   const live = document.getElementById("send-live");
   const errBox = document.getElementById("last-error-box");
+  const BURSTS = [20, 28, 22, 30, 18];
   let sendInFlight = false;
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
 
   function applyProgress(data) {
     document.getElementById("progress-bar").style.width = data.percent + "%";
@@ -162,7 +167,7 @@
     document.getElementById("stat-failed").textContent = data.failed;
     document.getElementById("stat-pending").textContent = data.pending;
     document.getElementById("stat-rate").textContent = (data.delivery_rate || 0) + "%";
-    if (live) {
+    if (live && !sendInFlight) {
       live.textContent = data.sent + " sent · " + data.failed + " failed · " + data.pending + " pending · " + data.status;
     }
     if (errBox) {
@@ -192,21 +197,48 @@
       const form = document.getElementById("batch-send-form");
       const token = form.querySelector("[name=csrfmiddlewaretoken]").value;
       form.querySelectorAll("button").forEach((b) => { b.disabled = true; });
-      if (live) live.textContent = "Sending " + btn.dataset.batch + "… status updating";
+      const target = parseInt(btn.dataset.batch, 10) || 20;
+      let left = target;
+      let done = 0;
+      let i = 0;
       sendInFlight = true;
       poll();
-      const body = new FormData();
-      body.append("csrfmiddlewaretoken", token);
-      body.append("batch", btn.dataset.batch);
       try {
-        const res = await fetch(sendUrl, {
-          method: "POST",
-          body,
-          headers: { "X-Requested-With": "fetch", "Accept": "application/json" },
-        });
-        const data = await res.json();
-        applyProgress(data);
-        if (live) live.textContent = data.message || live.textContent;
+        while (left > 0) {
+          const burst = Math.min(left, BURSTS[i % BURSTS.length]);
+          i += 1;
+          if (live) {
+            live.textContent = "Sending " + target + "… " + done + " of " + target + " (Hostinger-safe pace, please wait)";
+          }
+          const body = new FormData();
+          body.append("csrfmiddlewaretoken", token);
+          body.append("batch", String(burst));
+          const res = await fetch(sendUrl, {
+            method: "POST",
+            body,
+            headers: { "X-Requested-With": "fetch", "Accept": "application/json" },
+          });
+          const data = await res.json();
+          applyProgress(data);
+          if (!data.ok) {
+            if (live) live.textContent = data.message || "Send stopped.";
+            break;
+          }
+          const got = data.processed || 0;
+          if (!got) break;
+          done += got;
+          left -= got;
+          if (data.pending === 0) break;
+          if (left > 0) {
+            if (live) {
+              live.textContent = "Sending " + target + "… " + done + " of " + target + ". Short Hostinger pause…";
+            }
+            await sleep(10000 + Math.floor(Math.random() * 5000));
+          }
+        }
+        if (live) {
+          live.textContent = "Finished " + done + " of " + target + ". Refreshing…";
+        }
       } catch (e) {
         if (live) live.textContent = "Send request finished. Refreshing status…";
       }

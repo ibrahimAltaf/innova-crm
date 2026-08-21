@@ -19,6 +19,14 @@ from .models import AppSettings, Campaign, Recipient, SendLog, Unsubscribe
 
 _SEND_LOCK = Lock()
 _RUNNING = set()
+HOSTINGER_MAX_BURST = 30
+HOSTINGER_BURSTS = (20, 28, 22, 30, 18)
+
+
+def hostinger_burst_size(index: int, remaining: int) -> int:
+    """Small varying bursts so Hostinger does not see one 500-email blast."""
+    chunk = HOSTINGER_BURSTS[index % len(HOSTINGER_BURSTS)]
+    return max(1, min(int(remaining), chunk, HOSTINGER_MAX_BURST))
 
 
 def record_send(email: str, *, campaign: Campaign | None = None, kind: str = SendLog.Kind.CAMPAIGN) -> None:
@@ -529,15 +537,16 @@ def _open_smtp(app: AppSettings, previous=None):
     return connection
 
 
-def run_campaign(campaign_id: int, limit: int | None = None) -> None:
+def run_campaign(campaign_id: int, limit: int | None = None) -> int:
     if campaign_id in _RUNNING:
-        return
+        return 0
     with _SEND_LOCK:
         if campaign_id in _RUNNING:
-            return
+            return 0
         _RUNNING.add(campaign_id)
 
     connection = None
+    processed = 0
     try:
         campaign = Campaign.objects.select_related("template").get(pk=campaign_id)
         app = AppSettings.load()
@@ -551,25 +560,22 @@ def run_campaign(campaign_id: int, limit: int | None = None) -> None:
         )
         if limit:
             pending_ids = pending_ids[: max(1, int(limit))]
-        if limit:
-            delay = 0.25 if int(limit) <= 20 else 0.18 if int(limit) <= 100 else 0.12
-            batch_every = 10_000
-            batch_pause = 0.0
-        else:
-            small = len(pending_ids) <= 25
-            delay = 0.35 if small else max(0.05, float(app.delay_seconds or 0.6))
-            batch_every = 10_000 if small else max(1, app.batch_pause_every)
-            batch_pause = 0.0 if small else max(0.0, float(app.batch_pause_seconds or 0))
+        # Hostinger business mail rate-limits bursts. Always pace, never blast 500.
+        delay = max(0.6, float(app.delay_seconds or 0.65))
+        batch_every = 22
+        batch_pause = 12.0
         processed_in_batch = 0
         connection = _open_smtp(app)
         for index, recipient_id in enumerate(pending_ids):
             campaign.refresh_from_db(fields=["status"])
             if campaign.status == Campaign.Status.PAUSED:
-                return
+                return processed
             recipient = Recipient.objects.get(pk=recipient_id)
             sent_ok = False
             last_exc = None
-            for attempt in range(2):
+            rate_tries = 0
+            connect_tries = 0
+            while True:
                 try:
                     send_one(campaign, recipient, app, connection)
                     sent_ok = True
@@ -577,23 +583,25 @@ def run_campaign(campaign_id: int, limit: int | None = None) -> None:
                 except Exception as exc:
                     last_exc = exc
                     # Bounce/timeout often kills the Hostinger SMTP session.
-                    # Close + reopen so the *next* address still sends.
                     connection = _open_smtp(app, connection)
-                    if _is_permanent_bounce(exc) or _is_ratelimit(exc):
-                        break
-                    if _smtp_connection_dead(exc) and attempt == 0:
+                    if _is_ratelimit(exc) and rate_tries < 5:
+                        rate_tries += 1
+                        time.sleep(12 * rate_tries)
+                        continue
+                    if _smtp_connection_dead(exc) and connect_tries < 1:
+                        connect_tries += 1
                         continue
                     break
             if not sent_ok and last_exc is not None:
                 _mark_failed(recipient, campaign, last_exc)
-                if _is_ratelimit(last_exc):
-                    time.sleep(max(delay, 8.0))
+            processed += 1
 
             if index < len(pending_ids) - 1:
                 processed_in_batch += 1
                 time.sleep(delay)
                 if processed_in_batch >= batch_every:
                     time.sleep(batch_pause)
+                    connection = _open_smtp(app, connection)
                     processed_in_batch = 0
 
         campaign.refresh_from_db()
@@ -603,6 +611,7 @@ def run_campaign(campaign_id: int, limit: int | None = None) -> None:
             if not still_pending:
                 campaign.finished_at = timezone.now()
             campaign.save(update_fields=["status", "finished_at", "updated_at"])
+        return processed
     except Exception as exc:
         title, raw = explain_send_error(exc)
         Campaign.objects.filter(pk=campaign_id).update(
@@ -610,6 +619,7 @@ def run_campaign(campaign_id: int, limit: int | None = None) -> None:
             last_error=f"{title} · {raw}"[:800],
             finished_at=timezone.now(),
         )
+        return processed
     finally:
         if connection is not None:
             try:

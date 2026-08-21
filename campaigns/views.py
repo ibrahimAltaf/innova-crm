@@ -28,6 +28,7 @@ from .forms import (
 )
 from .importers import add_contacts_to_campaign, import_contacts, import_leads, parse_contact_rows
 from .mailer import (
+    HOSTINGER_MAX_BURST,
     _RUNNING,
     prepare_campaign_for_send,
     preview_sample_html,
@@ -118,6 +119,8 @@ def _parse_send_batch(request, default=20) -> int:
     except (TypeError, ValueError):
         size = default
     if size in SEND_BATCH_SIZES:
+        return size
+    if 15 <= size <= HOSTINGER_MAX_BURST:
         return size
     if size < 20:
         return 20
@@ -439,36 +442,57 @@ def campaign_send(request, pk):
         return reply(False, "Configure SMTP in Settings first, or set EMAIL_HOST_PASSWORD on Vercel.")
     if campaign.status == Campaign.Status.SENDING and campaign.pk in _RUNNING:
         return reply(True, "Already sending.")
-    pending_now = campaign.recipients.filter(status=Recipient.Status.PENDING).count()
-    this_batch = min(batch, pending_now) if pending_now else batch
     quota = send_quota(app)
     if quota["exhausted"]:
         return reply(
             False,
             f"Daily send limit reached ({quota['limit']}/day). Wait until tomorrow or raise the limit in Brand & SMTP.",
         )
-    if this_batch > quota["remaining"]:
-        return reply(
-            False,
-            f"Only {quota['remaining']} emails left today (limit {quota['limit']}). Send a smaller batch.",
-        )
     pending = prepare_campaign_for_send(campaign)
     if pending == 0:
         return reply(False, "No recipients left to send (unsubscribed).")
-    limit = min(batch, pending)
+    burst = min(batch, pending, HOSTINGER_MAX_BURST, max(0, quota["remaining"]))
+    if burst <= 0:
+        return reply(False, f"Only {quota['remaining']} emails left today (limit {quota['limit']}).")
     campaign.status = Campaign.Status.QUEUED
     campaign.save(update_fields=["status", "updated_at"])
-    run_campaign(campaign.pk, limit=limit)
+    processed = run_campaign(campaign.pk, limit=burst)
     campaign.refresh_from_db()
     left = campaign.pending_count
     if left:
         message = (
-            f"Batch of {limit} done. Sent {campaign.sent_count}, failed {campaign.failed_count}. "
-            f"{left} still waiting — send 20 / 100 / 500 again."
+            f"Sent a Hostinger-safe burst of {processed}. "
+            f"Total sent {campaign.sent_count}, failed {campaign.failed_count}. {left} still waiting."
         )
     else:
         message = f"Done. Sent {campaign.sent_count}, failed {campaign.failed_count}."
-    return reply(True, message)
+
+    def reply_done(ok, message):
+        campaign.refresh_from_db()
+        payload = {
+            "ok": ok,
+            "message": message,
+            "status": campaign.status,
+            "sent": campaign.sent_count,
+            "failed": campaign.failed_count,
+            "skipped": campaign.skipped_count,
+            "pending": campaign.pending_count,
+            "percent": campaign.progress_percent,
+            "delivery_rate": campaign.delivery_rate,
+            "last_error": campaign.last_error,
+            "batch": batch,
+            "processed": processed,
+            "continue": bool(left and processed),
+        }
+        if _wants_json(request):
+            return JsonResponse(payload, status=200 if ok else 400)
+        if ok:
+            messages.success(request, message)
+        else:
+            messages.error(request, message)
+        return redirect("campaigns:detail", pk=pk)
+
+    return reply_done(True, message)
 
 
 @require_POST
@@ -762,7 +786,7 @@ def campaign_retry_failed(request, pk):
     campaign.status = Campaign.Status.QUEUED
     campaign.save(update_fields=["failed_count", "last_error", "status", "updated_at"])
     batch = _parse_send_batch(request)
-    limit = min(batch, count)
+    limit = min(batch, count, HOSTINGER_MAX_BURST)
     run_campaign(campaign.pk, limit=limit)
     campaign.refresh_from_db()
     left = campaign.pending_count
