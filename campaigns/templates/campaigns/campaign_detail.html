@@ -43,7 +43,7 @@
 {% if campaign.status == "completed" %}
   <div class="alert alert-info">Sent {{ campaign.sent_count }} · failed {{ campaign.failed_count }} · skipped {{ campaign.skipped_count }}. Use <strong>Send 20 / 100 / 500</strong> again, or retry only the failed list.</div>
 {% elif campaign.pending_count %}
-  <div class="alert alert-warning" id="batch-waiting">{{ campaign.pending_count }} still waiting. Click <strong>Send 20 / 100 / 500</strong> — emails go in 10–20 bursts with pauses so Hostinger rate-limit na aaye. Wait zyada lagega, yeh normal hai.</div>
+  <div class="alert alert-warning" id="batch-waiting">{{ campaign.pending_count }} still waiting. Click <strong>Send 20 / 100 / 500</strong>. Emails go in small bursts with pauses so Hostinger does not rate-limit you. Extra wait time is normal.</div>
 {% endif %}
 
 <div class="row g-3 mb-4">
