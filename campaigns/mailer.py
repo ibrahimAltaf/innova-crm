@@ -19,8 +19,8 @@ from .models import AppSettings, Campaign, Recipient, SendLog, Unsubscribe
 
 _SEND_LOCK = Lock()
 _RUNNING = set()
-HOSTINGER_MAX_BURST = 30
-HOSTINGER_BURSTS = (20, 28, 22, 30, 18)
+HOSTINGER_MAX_BURST = 20
+HOSTINGER_BURSTS = (12, 18, 15, 20, 10)
 
 
 def hostinger_burst_size(index: int, remaining: int) -> int:
@@ -560,10 +560,10 @@ def run_campaign(campaign_id: int, limit: int | None = None) -> int:
         )
         if limit:
             pending_ids = pending_ids[: max(1, int(limit))]
-        # Hostinger business mail rate-limits bursts. Always pace, never blast 500.
-        delay = max(0.6, float(app.delay_seconds or 0.65))
-        batch_every = 22
-        batch_pause = 12.0
+        # Stay under Hostinger 451 burst limits: ~1 email/sec and a pause every ~12.
+        delay = max(1.0, float(app.delay_seconds or 1.0))
+        batch_every = 12
+        batch_pause = 20.0
         processed_in_batch = 0
         connection = _open_smtp(app)
         for index, recipient_id in enumerate(pending_ids):
@@ -584,9 +584,9 @@ def run_campaign(campaign_id: int, limit: int | None = None) -> int:
                     last_exc = exc
                     # Bounce/timeout often kills the Hostinger SMTP session.
                     connection = _open_smtp(app, connection)
-                    if _is_ratelimit(exc) and rate_tries < 5:
+                    if _is_ratelimit(exc) and rate_tries < 6:
                         rate_tries += 1
-                        time.sleep(12 * rate_tries)
+                        time.sleep(25 * rate_tries)
                         continue
                     if _smtp_connection_dead(exc) and connect_tries < 1:
                         connect_tries += 1

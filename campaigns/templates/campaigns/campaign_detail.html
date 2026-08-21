@@ -43,7 +43,7 @@
 {% if campaign.status == "completed" %}
   <div class="alert alert-info">Sent {{ campaign.sent_count }} · failed {{ campaign.failed_count }} · skipped {{ campaign.skipped_count }}. Use <strong>Send 20 / 100 / 500</strong> again, or retry only the failed list.</div>
 {% elif campaign.pending_count %}
-  <div class="alert alert-warning" id="batch-waiting">{{ campaign.pending_count }} still waiting. Click <strong>Send 20 / 100 / 500</strong> — the app splits it into small Hostinger-safe bursts (20–30) with pauses so rate-limit na aaye. Thora wait zyada lagega.</div>
+  <div class="alert alert-warning" id="batch-waiting">{{ campaign.pending_count }} still waiting. Click <strong>Send 20 / 100 / 500</strong> — emails go in 10–20 bursts with pauses so Hostinger rate-limit na aaye. Wait zyada lagega, yeh normal hai.</div>
 {% endif %}
 
 <div class="row g-3 mb-4">
@@ -153,7 +153,7 @@
   const progressUrl = "{% url 'campaigns:progress' campaign.pk %}";
   const live = document.getElementById("send-live");
   const errBox = document.getElementById("last-error-box");
-  const BURSTS = [20, 28, 22, 30, 18];
+  const BURSTS = [12, 18, 15, 20, 10];
   let sendInFlight = false;
 
   function sleep(ms) {
@@ -233,7 +233,7 @@
             if (live) {
               live.textContent = "Sending " + target + "… " + done + " of " + target + ". Short Hostinger pause…";
             }
-            await sleep(10000 + Math.floor(Math.random() * 5000));
+            await sleep(25000 + Math.floor(Math.random() * 10000));
           }
         }
         if (live) {

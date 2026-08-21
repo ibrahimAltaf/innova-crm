@@ -120,7 +120,7 @@ def _parse_send_batch(request, default=20) -> int:
         size = default
     if size in SEND_BATCH_SIZES:
         return size
-    if 15 <= size <= HOSTINGER_MAX_BURST:
+    if 8 <= size <= HOSTINGER_MAX_BURST:
         return size
     if size < 20:
         return 20

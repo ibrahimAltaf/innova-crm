@@ -386,9 +386,9 @@ class PipelineTests(AuthMixin, TestCase):
         from campaigns.mailer import hostinger_burst_size, run_campaign
         from django.utils import timezone
 
-        self.assertEqual(hostinger_burst_size(0, 500), 20)
-        self.assertEqual(hostinger_burst_size(1, 500), 28)
-        self.assertLessEqual(hostinger_burst_size(0, 500), 30)
+        self.assertEqual(hostinger_burst_size(0, 500), 12)
+        self.assertEqual(hostinger_burst_size(1, 500), 18)
+        self.assertLessEqual(hostinger_burst_size(0, 500), 20)
 
         ensure_templates()
         tpl = EmailTemplate.objects.get(slug="newsletter")
