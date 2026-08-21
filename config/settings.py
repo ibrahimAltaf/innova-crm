@@ -94,6 +94,7 @@ if "test" in sys.argv:
     pass
 elif db_url:
     url = urllib.parse.urlparse(db_url)
+    query = urllib.parse.parse_qs(url.query)
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
@@ -103,7 +104,7 @@ elif db_url:
             "HOST": url.hostname,
             "PORT": url.port or 5432,
             "OPTIONS": {
-                "sslmode": "require",
+                "sslmode": (query.get("sslmode") or ["require"])[0],
             },
         }
     }

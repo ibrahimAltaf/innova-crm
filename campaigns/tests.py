@@ -229,6 +229,16 @@ class ContactBulkTests(TestCase):
         self.assertEqual(kwargs["host"], "smtp.hostinger.com")
 
 
+class SmtpRecoveryTests(TestCase):
+    def test_dead_connection_is_detected(self):
+        from campaigns.mailer import _is_ratelimit, _smtp_connection_dead
+
+        self.assertTrue(_smtp_connection_dead(RuntimeError("please run connect() first")))
+        self.assertTrue(_smtp_connection_dead(RuntimeError("SMTP server disconnected")))
+        self.assertFalse(_smtp_connection_dead(RuntimeError("550 user unknown")))
+        self.assertTrue(_is_ratelimit(RuntimeError('451 4.7.1 Ratelimit "hostinger_out_ratelimit" exceeded')))
+
+
 class PipelineTests(TestCase):
     def test_dashboard_pipeline_and_move(self):
         from campaigns.models import Activity, Lead

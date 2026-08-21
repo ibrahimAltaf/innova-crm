@@ -1,6 +1,7 @@
 import base64
 import html as html_lib
 import imaplib
+import os
 import re
 import ssl
 import time
@@ -303,6 +304,8 @@ def build_message(campaign: Campaign, recipient: Recipient, app: AppSettings, co
 
 
 def save_copy_to_sent(app: AppSettings, raw_message: bytes) -> None:
+    if os.getenv("VERCEL"):
+        return
     kwargs = smtp_kwargs(app)
     user = kwargs["username"]
     password = kwargs["password"]
@@ -419,6 +422,36 @@ def prepare_campaign_for_send(campaign: Campaign) -> int:
     return campaign.recipients.filter(status=Recipient.Status.PENDING).count()
 
 
+def _smtp_connection_dead(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(
+        needle in text
+        for needle in (
+            "please run connect() first",
+            "connection unexpectedly closed",
+            "broken pipe",
+            "server not connected",
+            "smtp server disconnected",
+        )
+    )
+
+
+def _is_ratelimit(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "ratelimit" in text or "4.7.1" in text
+
+
+def _open_smtp(app: AppSettings, previous=None):
+    if previous is not None:
+        try:
+            previous.close()
+        except Exception:
+            pass
+    connection = get_connection(**smtp_kwargs(app))
+    connection.open()
+    return connection
+
+
 def run_campaign(campaign_id: int, limit: int | None = None) -> None:
     if campaign_id in _RUNNING:
         return
@@ -427,6 +460,7 @@ def run_campaign(campaign_id: int, limit: int | None = None) -> None:
             return
         _RUNNING.add(campaign_id)
 
+    connection = None
     try:
         campaign = Campaign.objects.select_related("template").get(pk=campaign_id)
         app = AppSettings.load()
@@ -445,28 +479,41 @@ def run_campaign(campaign_id: int, limit: int | None = None) -> None:
         batch_every = 10_000 if small else max(1, app.batch_pause_every)
         batch_pause = 0.0 if small else max(0.0, float(app.batch_pause_seconds or 0))
         processed_in_batch = 0
-        with get_connection(**smtp_kwargs(app)) as connection:
-            for index, recipient_id in enumerate(pending_ids):
-                campaign.refresh_from_db(fields=["status"])
-                if campaign.status == Campaign.Status.PAUSED:
-                    return
-                recipient = Recipient.objects.get(pk=recipient_id)
+        connection = _open_smtp(app)
+        for index, recipient_id in enumerate(pending_ids):
+            campaign.refresh_from_db(fields=["status"])
+            if campaign.status == Campaign.Status.PAUSED:
+                return
+            recipient = Recipient.objects.get(pk=recipient_id)
+            sent_ok = False
+            last_exc = None
+            for attempt in range(2):
                 try:
                     send_one(campaign, recipient, app, connection)
+                    sent_ok = True
+                    break
                 except Exception as exc:
-                    recipient.status = Recipient.Status.FAILED
-                    recipient.error_message = str(exc)[:800]
-                    recipient.save(update_fields=["status", "error_message"])
-                    campaign.failed_count += 1
-                    campaign.last_error = str(exc)[:800]
-                    campaign.save(update_fields=["failed_count", "last_error", "updated_at"])
+                    last_exc = exc
+                    connection = _open_smtp(app, connection)
+                    if _smtp_connection_dead(exc) and attempt == 0:
+                        continue
+                    break
+            if not sent_ok and last_exc is not None:
+                recipient.status = Recipient.Status.FAILED
+                recipient.error_message = str(last_exc)[:800]
+                recipient.save(update_fields=["status", "error_message"])
+                campaign.failed_count += 1
+                campaign.last_error = str(last_exc)[:800]
+                campaign.save(update_fields=["failed_count", "last_error", "updated_at"])
+                if _is_ratelimit(last_exc):
+                    time.sleep(max(delay, 8.0))
 
-                if index < len(pending_ids) - 1:
-                    processed_in_batch += 1
-                    time.sleep(delay)
-                    if processed_in_batch >= batch_every:
-                        time.sleep(batch_pause)
-                        processed_in_batch = 0
+            if index < len(pending_ids) - 1:
+                processed_in_batch += 1
+                time.sleep(delay)
+                if processed_in_batch >= batch_every:
+                    time.sleep(batch_pause)
+                    processed_in_batch = 0
 
         campaign.refresh_from_db()
         if campaign.status != Campaign.Status.PAUSED:
@@ -482,6 +529,11 @@ def run_campaign(campaign_id: int, limit: int | None = None) -> None:
             finished_at=timezone.now(),
         )
     finally:
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                pass
         _RUNNING.discard(campaign_id)
 
 
