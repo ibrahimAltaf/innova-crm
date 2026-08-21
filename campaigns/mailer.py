@@ -347,26 +347,31 @@ def save_copy_to_sent(app: AppSettings, raw_message: bytes) -> None:
 def smtp_kwargs(app: AppSettings) -> dict:
     env_host = (dj_settings.EMAIL_HOST or "").strip()
     env_user = (dj_settings.EMAIL_HOST_USER or "").strip()
-    env_pass = (dj_settings.EMAIL_HOST_PASSWORD or "").strip()
+    env_pass = (dj_settings.EMAIL_HOST_PASSWORD or "").strip().strip('"').strip("'")
     if env_user and env_pass:
         host = env_host if env_host and env_host != "localhost" else (app.smtp_host or "smtp.hostinger.com")
+        use_ssl = bool(dj_settings.EMAIL_USE_SSL)
+        use_tls = bool(dj_settings.EMAIL_USE_TLS)
+        if not use_ssl and not use_tls:
+            use_ssl = True
+            use_tls = False
         return {
             "host": host,
             "port": dj_settings.EMAIL_PORT or app.smtp_port or 465,
             "username": env_user,
             "password": env_pass,
-            "use_tls": bool(dj_settings.EMAIL_USE_TLS),
-            "use_ssl": bool(dj_settings.EMAIL_USE_SSL),
+            "use_tls": use_tls and not use_ssl,
+            "use_ssl": use_ssl,
             "timeout": 30,
             "fail_silently": False,
         }
     return {
-        "host": (app.smtp_host or env_host).strip(),
-        "port": app.smtp_port or dj_settings.EMAIL_PORT,
+        "host": (app.smtp_host or env_host or "smtp.hostinger.com").strip(),
+        "port": app.smtp_port or dj_settings.EMAIL_PORT or 465,
         "username": (app.smtp_user or env_user).strip(),
         "password": (app.smtp_password or env_pass).strip(),
-        "use_tls": bool(app.smtp_use_tls),
-        "use_ssl": bool(app.smtp_use_ssl),
+        "use_tls": bool(app.smtp_use_tls) and not bool(app.smtp_use_ssl),
+        "use_ssl": bool(app.smtp_use_ssl) or (not app.smtp_use_tls and (app.smtp_port or 465) == 465),
         "timeout": 30,
         "fail_silently": False,
     }
@@ -482,6 +487,8 @@ def explain_send_error(exc: Exception) -> tuple[str, str]:
     """Human reason first, raw Hostinger/SMTP text second."""
     raw = _smtp_error_text(exc)[:800]
     text = raw.lower()
+    if "535" in text or "authentication failed" in text or "5.7.8" in text:
+        return ("Hostinger mailbox password rejected — update Brand & SMTP / EMAIL_HOST_PASSWORD", raw)
     if _is_ratelimit(exc):
         return ("Hostinger send limit reached — wait, then retry this address", raw)
     if "blocked" in text or "example.com" in text:
@@ -592,9 +599,10 @@ def run_campaign(campaign_id: int, limit: int | None = None) -> None:
                 campaign.finished_at = timezone.now()
             campaign.save(update_fields=["status", "finished_at", "updated_at"])
     except Exception as exc:
+        title, raw = explain_send_error(exc)
         Campaign.objects.filter(pk=campaign_id).update(
             status=Campaign.Status.FAILED,
-            last_error=str(exc)[:800],
+            last_error=f"{title} · {raw}"[:800],
             finished_at=timezone.now(),
         )
     finally:

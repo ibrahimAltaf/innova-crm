@@ -255,6 +255,8 @@ class SmtpRecoveryTests(AuthMixin, TestCase):
         title, raw = explain_send_error(RuntimeError("(550, '5.1.1 User unknown: gone@nope.invalid')"))
         self.assertIn("not available", title.lower())
         self.assertIn("550", raw)
+        auth_title, _ = explain_send_error(RuntimeError("(535, b'5.7.8 Error: authentication failed: (reason unavailable)')"))
+        self.assertIn("password", auth_title.lower())
 
     def test_campaign_continues_after_missing_mailbox(self):
         from unittest.mock import MagicMock, patch
