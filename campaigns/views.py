@@ -108,6 +108,30 @@ def campaign_edit(request, pk):
     )
 
 
+SEND_BATCH_SIZES = (20, 100, 500)
+
+
+def _parse_send_batch(request, default=20) -> int:
+    raw = (request.POST.get("batch") or request.GET.get("batch") or str(default)).strip()
+    try:
+        size = int(raw)
+    except (TypeError, ValueError):
+        size = default
+    if size in SEND_BATCH_SIZES:
+        return size
+    if size < 20:
+        return 20
+    if size > 500:
+        return 500
+    return min(SEND_BATCH_SIZES, key=lambda n: abs(n - size))
+
+
+def _wants_json(request) -> bool:
+    requested = (request.headers.get("X-Requested-With") or "").lower()
+    accept = (request.headers.get("Accept") or "").lower()
+    return requested in {"fetch", "xmlhttprequest"} or "application/json" in accept
+
+
 def _complete_idle_campaign(campaign: Campaign) -> Campaign:
     if (
         campaign.status == Campaign.Status.SENDING
@@ -149,6 +173,7 @@ def campaign_detail(request, pk):
             "status_counts": status_counts,
             "test_form": test_form,
             "preview_html": preview_html,
+            "send_batch_sizes": SEND_BATCH_SIZES,
         },
     )
 
@@ -377,59 +402,73 @@ def template_preview(request, pk):
 @require_POST
 def campaign_send(request, pk):
     campaign = get_object_or_404(Campaign, pk=pk)
+    batch = _parse_send_batch(request)
+
+    def reply(ok, message, *, level="success"):
+        campaign.refresh_from_db()
+        payload = {
+            "ok": ok,
+            "message": message,
+            "status": campaign.status,
+            "sent": campaign.sent_count,
+            "failed": campaign.failed_count,
+            "skipped": campaign.skipped_count,
+            "pending": campaign.pending_count,
+            "percent": campaign.progress_percent,
+            "delivery_rate": campaign.delivery_rate,
+            "last_error": campaign.last_error,
+            "batch": batch,
+        }
+        if _wants_json(request):
+            return JsonResponse(payload, status=200 if ok else 400)
+        if ok:
+            messages.success(request, message)
+        else:
+            messages.error(request, message)
+        if not ok and "SMTP" in message:
+            return redirect("campaigns:settings")
+        if not ok and campaign.total_recipients == 0:
+            return redirect("campaigns:recipients", pk=pk)
+        return redirect("campaigns:detail", pk=pk)
+
     if campaign.total_recipients == 0:
-        messages.error(request, "Add recipients before sending.")
-        return redirect("campaigns:recipients", pk=pk)
+        return reply(False, "Add recipients before sending.")
     app = AppSettings.load()
     mail = smtp_kwargs(app)
     if not (mail.get("host") and mail.get("username") and mail.get("password")):
-        messages.error(request, "Configure SMTP in Settings first, or set EMAIL_HOST_PASSWORD on Vercel.")
-        return redirect("campaigns:settings")
+        return reply(False, "Configure SMTP in Settings first, or set EMAIL_HOST_PASSWORD on Vercel.")
     if campaign.status == Campaign.Status.SENDING and campaign.pk in _RUNNING:
-        messages.info(request, "Already sending.")
-        return redirect("campaigns:detail", pk=pk)
-    quota = send_quota(app)
+        return reply(True, "Already sending.")
     pending_now = campaign.recipients.filter(status=Recipient.Status.PENDING).count()
-    planned = pending_now or campaign.recipients.exclude(status=Recipient.Status.SKIPPED).count()
+    this_batch = min(batch, pending_now) if pending_now else batch
+    quota = send_quota(app)
     if quota["exhausted"]:
-        messages.error(
-            request,
+        return reply(
+            False,
             f"Daily send limit reached ({quota['limit']}/day). Wait until tomorrow or raise the limit in Brand & SMTP.",
         )
-        return redirect("campaigns:detail", pk=pk)
-    if planned > quota["remaining"]:
-        messages.error(
-            request,
-            f"Only {quota['remaining']} emails left today (limit {quota['limit']}). "
-            "Send a smaller batch or raise the daily limit in Brand & SMTP.",
+    if this_batch > quota["remaining"]:
+        return reply(
+            False,
+            f"Only {quota['remaining']} emails left today (limit {quota['limit']}). Send a smaller batch.",
         )
-        return redirect("campaigns:detail", pk=pk)
     pending = prepare_campaign_for_send(campaign)
     if pending == 0:
-        messages.error(request, "No recipients left to send (unsubscribed).")
-        return redirect("campaigns:detail", pk=pk)
+        return reply(False, "No recipients left to send (unsubscribed).")
+    limit = min(batch, pending)
     campaign.status = Campaign.Status.QUEUED
     campaign.save(update_fields=["status", "updated_at"])
-    on_vercel = bool(os.getenv("VERCEL"))
-    if pending <= 25:
-        run_campaign(campaign.pk)
-        campaign.refresh_from_db()
-        messages.success(
-            request,
-            f"Done. Sent {campaign.sent_count}, failed {campaign.failed_count}. Check inbox and Hostinger Sent.",
-        )
-    elif on_vercel:
-        run_campaign(campaign.pk, limit=20)
-        campaign.refresh_from_db()
-        left = campaign.pending_count
-        messages.success(
-            request,
-            f"Sent a batch of 20. Total sent {campaign.sent_count}, failed {campaign.failed_count}. {left} still waiting — press Send again.",
+    run_campaign(campaign.pk, limit=limit)
+    campaign.refresh_from_db()
+    left = campaign.pending_count
+    if left:
+        message = (
+            f"Batch of {limit} done. Sent {campaign.sent_count}, failed {campaign.failed_count}. "
+            f"{left} still waiting — send 20 / 100 / 500 again."
         )
     else:
-        start_campaign_async(campaign.pk)
-        messages.success(request, "Sending started in the background. Keep this app running until it finishes.")
-    return redirect("campaigns:detail", pk=pk)
+        message = f"Done. Sent {campaign.sent_count}, failed {campaign.failed_count}."
+    return reply(True, message)
 
 
 @require_POST
@@ -722,13 +761,18 @@ def campaign_retry_failed(request, pk):
     campaign.last_error = ""
     campaign.status = Campaign.Status.QUEUED
     campaign.save(update_fields=["failed_count", "last_error", "status", "updated_at"])
-    if count <= 25:
-        run_campaign(campaign.pk)
-        campaign.refresh_from_db()
-        messages.success(request, f"Retried {count}. Sent {campaign.sent_count}, failed {campaign.failed_count}.")
+    batch = _parse_send_batch(request)
+    limit = min(batch, count)
+    run_campaign(campaign.pk, limit=limit)
+    campaign.refresh_from_db()
+    left = campaign.pending_count
+    if left:
+        messages.success(
+            request,
+            f"Retried a batch of {limit}. Sent {campaign.sent_count}, failed {campaign.failed_count}. {left} still waiting.",
+        )
     else:
-        start_campaign_async(campaign.pk)
-        messages.success(request, f"Retrying {count} failed emails in the background.")
+        messages.success(request, f"Retried {count}. Sent {campaign.sent_count}, failed {campaign.failed_count}.")
     return redirect("campaigns:detail", pk=pk)
 
 

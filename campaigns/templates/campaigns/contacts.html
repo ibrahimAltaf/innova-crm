@@ -68,7 +68,7 @@
             <button class="btn btn-outline-primary" type="submit">Add to campaign</button>
             <button class="btn btn-success" type="submit" name="send_now" value="1">Add &amp; send now</button>
           </div>
-          <p class="form-text mb-0 mt-2">20 / 50 / 100 / 500 uses the current search. On the live site, about 20 emails send per click — press Send again for the next batch.</p>
+          <p class="form-text mb-0 mt-2">20 / 50 / 100 / 500 uses the current search. After adding, open the campaign and send in batches of <strong>20 / 100 / 500</strong> so you can watch sent vs failed live.</p>
         </div>
         {% if not campaigns %}
           <div class="alert alert-warning">Create a campaign first (write the email), then come back and send to 20 / 50 / 100 / 500 contacts. <a href="{% url 'campaigns:create' %}">New campaign</a></div>

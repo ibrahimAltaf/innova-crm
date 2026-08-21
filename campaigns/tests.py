@@ -345,3 +345,36 @@ class PipelineTests(AuthMixin, TestCase):
         self.assertContains(report, "SMTP error")
         dash = self.client.get(reverse("campaigns:dashboard"))
         self.assertContains(dash, "Hostinger send quota")
+
+    def test_send_batch_size_buttons(self):
+        from unittest.mock import patch
+
+        app = AppSettings.load()
+        app.smtp_host = "smtp.hostinger.com"
+        app.smtp_port = 465
+        app.smtp_user = "info@example.com"
+        app.smtp_password = "secret"
+        app.smtp_use_ssl = True
+        app.from_email = "info@example.com"
+        app.save()
+        ensure_templates()
+        tpl = EmailTemplate.objects.get(slug="newsletter")
+        campaign = Campaign.objects.create(name="Batch", template=tpl, subject="Hi", heading="Hi", body="Body")
+        for i in range(3):
+            Recipient.objects.create(campaign=campaign, email=f"u{i}@client.com", name=f"U{i}")
+        page = self.client.get(reverse("campaigns:detail", args=[campaign.pk]))
+        self.assertContains(page, "Send 20")
+        self.assertContains(page, "Send 100")
+        self.assertContains(page, "Send 500")
+        with patch("campaigns.views.run_campaign") as run:
+            response = self.client.post(
+                reverse("campaigns:send", args=[campaign.pk]),
+                {"batch": "100"},
+                HTTP_X_REQUESTED_WITH="fetch",
+                HTTP_ACCEPT="application/json",
+            )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["batch"], 100)
+        run.assert_called_once_with(campaign.pk, limit=3)

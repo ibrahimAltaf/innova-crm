@@ -551,10 +551,15 @@ def run_campaign(campaign_id: int, limit: int | None = None) -> None:
         )
         if limit:
             pending_ids = pending_ids[: max(1, int(limit))]
-        small = len(pending_ids) <= 25
-        delay = 0.35 if small else max(0.05, float(app.delay_seconds or 0.6))
-        batch_every = 10_000 if small else max(1, app.batch_pause_every)
-        batch_pause = 0.0 if small else max(0.0, float(app.batch_pause_seconds or 0))
+        if limit:
+            delay = 0.25 if int(limit) <= 20 else 0.18 if int(limit) <= 100 else 0.12
+            batch_every = 10_000
+            batch_pause = 0.0
+        else:
+            small = len(pending_ids) <= 25
+            delay = 0.35 if small else max(0.05, float(app.delay_seconds or 0.6))
+            batch_every = 10_000 if small else max(1, app.batch_pause_every)
+            batch_pause = 0.0 if small else max(0.0, float(app.batch_pause_seconds or 0))
         processed_in_batch = 0
         connection = _open_smtp(app)
         for index, recipient_id in enumerate(pending_ids):

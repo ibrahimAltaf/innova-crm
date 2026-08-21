@@ -17,9 +17,13 @@
     <a class="btn btn-outline-primary" target="_blank" href="{% url 'campaigns:preview' campaign.pk %}">Open preview</a>
     {% if campaign.status != "sending" %}
       {% if campaign.total_recipients %}
-      <form method="post" action="{% url 'campaigns:send' campaign.pk %}">
+      <form method="post" action="{% url 'campaigns:send' campaign.pk %}" class="d-flex flex-wrap gap-2" id="batch-send-form">
         {% csrf_token %}
-        <button class="btn btn-success" type="submit"><i class="bi bi-send-fill"></i> {% if campaign.status == "completed" %}Send again{% else %}Send emails{% endif %}</button>
+        {% for size in send_batch_sizes %}
+        <button class="btn btn-success" type="submit" name="batch" value="{{ size }}" data-batch="{{ size }}">
+          <i class="bi bi-send-fill"></i> Send {{ size }}
+        </button>
+        {% endfor %}
       </form>
       {% else %}
       <a class="btn btn-success disabled" aria-disabled="true">Send emails</a>
@@ -37,7 +41,9 @@
   <div class="alert alert-warning">Add people first, then Send will be enabled. <a href="{% url 'campaigns:recipients' campaign.pk %}" class="alert-link">Add leads / contacts / CSV</a></div>
 {% endif %}
 {% if campaign.status == "completed" %}
-  <div class="alert alert-info">Sent {{ campaign.sent_count }} · failed {{ campaign.failed_count }} · skipped {{ campaign.skipped_count }}. Use <strong>Send again</strong> for everyone, or retry only the failed list.</div>
+  <div class="alert alert-info">Sent {{ campaign.sent_count }} · failed {{ campaign.failed_count }} · skipped {{ campaign.skipped_count }}. Use <strong>Send 20 / 100 / 500</strong> again, or retry only the failed list.</div>
+{% elif campaign.pending_count %}
+  <div class="alert alert-warning" id="batch-waiting">{{ campaign.pending_count }} still waiting. Pick <strong>Send 20</strong>, <strong>100</strong>, or <strong>500</strong> for the next batch. Status updates live while a batch is sending.</div>
 {% endif %}
 
 <div class="row g-3 mb-4">
@@ -52,7 +58,7 @@
     <div class="panel p-4 mb-4">
       <div class="d-flex justify-content-between mb-2">
         <strong>Send progress</strong>
-        <span class="small text-secondary">{{ campaign.total_recipients }} total</span>
+        <span class="small text-secondary" id="send-live">{{ campaign.total_recipients }} total · {{ campaign.status }}</span>
       </div>
       <div class="progress mb-3" style="height:10px;">
         <div id="progress-bar" class="progress-bar" style="width: {{ campaign.progress_percent }}%"></div>
@@ -61,15 +67,15 @@
         <a class="btn btn-sm btn-outline-secondary" href="{% url 'campaigns:export' campaign.pk %}">Export all CSV</a>
         <a class="btn btn-sm btn-outline-danger" href="{% url 'campaigns:export' campaign.pk %}?status=failed">Export failed</a>
         {% if campaign.failed_count and campaign.status != "sending" %}
-        <form method="post" action="{% url 'campaigns:retry_failed' campaign.pk %}">
+        <form method="post" action="{% url 'campaigns:retry_failed' campaign.pk %}" class="d-flex flex-wrap gap-1">
           {% csrf_token %}
-          <button class="btn btn-sm btn-outline-primary" type="submit">Retry failed</button>
+          {% for size in send_batch_sizes %}
+          <button class="btn btn-sm btn-outline-primary" type="submit" name="batch" value="{{ size }}">Retry {{ size }} failed</button>
+          {% endfor %}
         </form>
         {% endif %}
       </div>
-      {% if campaign.last_error %}
-        <div class="alert alert-warning mt-3 mb-0 small">Last error: {{ campaign.last_error }}</div>
-      {% endif %}
+      <div class="alert alert-warning mt-3 mb-0 small {% if not campaign.last_error %}d-none{% endif %}" id="last-error-box">Last error: {{ campaign.last_error }}</div>
     </div>
 
     <div class="panel p-4 mb-4">
@@ -143,21 +149,72 @@
 {% block extra_js %}
 <script>
   const campaignStatus = "{{ campaign.status }}";
-  async function poll() {
-    const res = await fetch("{% url 'campaigns:progress' campaign.pk %}");
-    const data = await res.json();
+  const sendUrl = "{% url 'campaigns:send' campaign.pk %}";
+  const progressUrl = "{% url 'campaigns:progress' campaign.pk %}";
+  const live = document.getElementById("send-live");
+  const errBox = document.getElementById("last-error-box");
+  let sendInFlight = false;
+
+  function applyProgress(data) {
     document.getElementById("progress-bar").style.width = data.percent + "%";
     document.getElementById("progress-label").textContent = data.percent + "% processed · " + data.status;
     document.getElementById("stat-sent").textContent = data.sent;
     document.getElementById("stat-failed").textContent = data.failed;
     document.getElementById("stat-pending").textContent = data.pending;
     document.getElementById("stat-rate").textContent = (data.delivery_rate || 0) + "%";
-    if (data.status === "sending" || data.status === "queued") {
-      setTimeout(poll, 1500);
-    } else if (campaignStatus === "sending" && data.status === "completed") {
-      window.location.reload();
+    if (live) {
+      live.textContent = data.sent + " sent · " + data.failed + " failed · " + data.pending + " pending · " + data.status;
+    }
+    if (errBox) {
+      if (data.last_error) {
+        errBox.classList.remove("d-none");
+        errBox.textContent = "Last error: " + data.last_error;
+      } else {
+        errBox.classList.add("d-none");
+      }
     }
   }
-  if (campaignStatus === "sending" || campaignStatus === "queued") poll();
+
+  async function poll() {
+    try {
+      const res = await fetch(progressUrl);
+      const data = await res.json();
+      applyProgress(data);
+    } catch (e) {}
+    if (sendInFlight) {
+      setTimeout(poll, 1000);
+    }
+  }
+
+  document.querySelectorAll("#batch-send-form [data-batch]").forEach((btn) => {
+    btn.addEventListener("click", async (event) => {
+      event.preventDefault();
+      const form = document.getElementById("batch-send-form");
+      const token = form.querySelector("[name=csrfmiddlewaretoken]").value;
+      form.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+      if (live) live.textContent = "Sending " + btn.dataset.batch + "… status updating";
+      sendInFlight = true;
+      poll();
+      const body = new FormData();
+      body.append("csrfmiddlewaretoken", token);
+      body.append("batch", btn.dataset.batch);
+      try {
+        const res = await fetch(sendUrl, {
+          method: "POST",
+          body,
+          headers: { "X-Requested-With": "fetch", "Accept": "application/json" },
+        });
+        const data = await res.json();
+        applyProgress(data);
+        if (live) live.textContent = data.message || live.textContent;
+      } catch (e) {
+        if (live) live.textContent = "Send request finished. Refreshing status…";
+      }
+      sendInFlight = false;
+      window.location.reload();
+    });
+  });
+
+  if (campaignStatus === "sending") poll();
 </script>
 {% endblock %}
