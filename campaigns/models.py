@@ -128,6 +128,15 @@ class Recipient(models.Model):
     def __str__(self):
         return self.email
 
+    @property
+    def fail_reason(self) -> str:
+        return (self.error_message or "").strip()
+
+    @property
+    def fail_detail(self) -> str:
+        extra = self.extra if isinstance(self.extra, dict) else {}
+        return (extra.get("smtp_error") or "").strip()
+
 
 class Contact(models.Model):
     email = models.EmailField(unique=True)

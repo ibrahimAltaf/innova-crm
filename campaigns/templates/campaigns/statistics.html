@@ -58,16 +58,18 @@
       {% if recent_failed %}
       <div class="table-responsive">
         <table class="table table-sm mb-0">
-          <thead><tr><th>Email</th><th>Error</th></tr></thead>
+          <thead><tr><th>Email</th><th>Reason</th></tr></thead>
           <tbody>
             {% for row in recent_failed %}
+            {% with r=row %}
             <tr>
               <td>
-                <div class="fw-semibold">{{ row.email }}</div>
-                <div class="small text-secondary">{{ row.campaign.name }}</div>
+                <div class="fw-semibold">{{ r.email }}</div>
+                <div class="small text-secondary">{{ r.campaign.name }}</div>
               </td>
-              <td class="small text-danger">{{ row.error_message|truncatechars:80 }}</td>
+              <td>{% include "campaigns/_fail_reason.html" %}</td>
             </tr>
+            {% endwith %}
             {% endfor %}
           </tbody>
         </table>

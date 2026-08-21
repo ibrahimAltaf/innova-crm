@@ -246,12 +246,58 @@ class ContactBulkTests(AuthMixin, TestCase):
 
 class SmtpRecoveryTests(AuthMixin, TestCase):
     def test_dead_connection_is_detected(self):
-        from campaigns.mailer import _is_ratelimit, _smtp_connection_dead
+        from campaigns.mailer import _is_ratelimit, _smtp_connection_dead, explain_send_error
 
         self.assertTrue(_smtp_connection_dead(RuntimeError("please run connect() first")))
         self.assertTrue(_smtp_connection_dead(RuntimeError("SMTP server disconnected")))
         self.assertFalse(_smtp_connection_dead(RuntimeError("550 user unknown")))
         self.assertTrue(_is_ratelimit(RuntimeError('451 4.7.1 Ratelimit "hostinger_out_ratelimit" exceeded')))
+        title, raw = explain_send_error(RuntimeError("(550, '5.1.1 User unknown: gone@nope.invalid')"))
+        self.assertIn("not available", title.lower())
+        self.assertIn("550", raw)
+
+    def test_campaign_continues_after_missing_mailbox(self):
+        from unittest.mock import MagicMock, patch
+
+        from campaigns.mailer import run_campaign
+        from django.utils import timezone
+
+        ensure_templates()
+        tpl = EmailTemplate.objects.get(slug="newsletter")
+        campaign = Campaign.objects.create(
+            name="Hostinger bounce",
+            template=tpl,
+            subject="Hi",
+            heading="Hi",
+            body="Body",
+        )
+        bad = Recipient.objects.create(campaign=campaign, email="gone@nope.invalid", name="Gone")
+        ok = Recipient.objects.create(campaign=campaign, email="ok@client.com", name="Ok")
+
+        def fake_send(_campaign, recipient, _app, _connection):
+            if recipient.email.startswith("gone@"):
+                raise RuntimeError("(550, '5.1.1 User unknown: gone@nope.invalid')")
+            recipient.status = Recipient.Status.SENT
+            recipient.sent_at = timezone.now()
+            recipient.error_message = ""
+            recipient.save(update_fields=["status", "sent_at", "error_message"])
+            _campaign.sent_count += 1
+            _campaign.save(update_fields=["sent_count", "updated_at"])
+
+        with patch("campaigns.mailer._open_smtp", return_value=MagicMock()), patch(
+            "campaigns.mailer.send_one", side_effect=fake_send
+        ), patch("campaigns.mailer.time.sleep"):
+            run_campaign(campaign.pk)
+
+        bad.refresh_from_db()
+        ok.refresh_from_db()
+        campaign.refresh_from_db()
+        self.assertEqual(bad.status, Recipient.Status.FAILED)
+        self.assertIn("not available", bad.error_message.lower())
+        self.assertIn("550", bad.fail_detail)
+        self.assertEqual(ok.status, Recipient.Status.SENT)
+        self.assertEqual(campaign.sent_count, 1)
+        self.assertEqual(campaign.failed_count, 1)
 
 
 class PipelineTests(AuthMixin, TestCase):

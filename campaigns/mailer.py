@@ -432,8 +432,12 @@ def prepare_campaign_for_send(campaign: Campaign) -> int:
     return campaign.recipients.filter(status=Recipient.Status.PENDING).count()
 
 
+def _smtp_error_text(exc: Exception) -> str:
+    return " ".join(str(exc).split())
+
+
 def _smtp_connection_dead(exc: Exception) -> bool:
-    text = str(exc).lower()
+    text = _smtp_error_text(exc).lower()
     return any(
         needle in text
         for needle in (
@@ -447,8 +451,64 @@ def _smtp_connection_dead(exc: Exception) -> bool:
 
 
 def _is_ratelimit(exc: Exception) -> bool:
-    text = str(exc).lower()
-    return "ratelimit" in text or "4.7.1" in text
+    text = _smtp_error_text(exc).lower()
+    return "ratelimit" in text or "4.7.1" in text or "hostinger_out_ratelimit" in text
+
+
+def _is_permanent_bounce(exc: Exception) -> bool:
+    """Hostinger 5xx for a missing/blocked mailbox — skip this address, keep sending the rest."""
+    text = _smtp_error_text(exc).lower()
+    return any(
+        needle in text
+        for needle in (
+            "550",
+            "551",
+            "553",
+            "5.1.1",
+            "5.1.10",
+            "user unknown",
+            "unknown user",
+            "mailbox unavailable",
+            "does not exist",
+            "no such user",
+            "recipient address rejected",
+            "relay access denied",
+            "user not found",
+        )
+    )
+
+
+def explain_send_error(exc: Exception) -> tuple[str, str]:
+    """Human reason first, raw Hostinger/SMTP text second."""
+    raw = _smtp_error_text(exc)[:800]
+    text = raw.lower()
+    if _is_ratelimit(exc):
+        return ("Hostinger send limit reached — wait, then retry this address", raw)
+    if "blocked" in text or "example.com" in text:
+        return ("Mailbox blocked or rejected by Hostinger", raw)
+    if _is_permanent_bounce(exc):
+        return ("Mailbox not found — this email is not available", raw)
+    if "mailbox full" in text or "552" in text:
+        return ("Mailbox is full", raw)
+    if "timed out" in text or "timeout" in text:
+        return ("Hostinger SMTP timed out", raw)
+    if _smtp_connection_dead(exc):
+        return ("SMTP connection dropped — this address was retried on a new connection", raw)
+    return ("Send failed", raw)
+
+
+def _mark_failed(recipient: Recipient, campaign: Campaign, exc: Exception) -> None:
+    title, raw = explain_send_error(exc)
+    extra = dict(recipient.extra or {})
+    extra["smtp_error"] = raw
+    extra["fail_code"] = "mailbox_missing" if _is_permanent_bounce(exc) else "send_failed"
+    recipient.status = Recipient.Status.FAILED
+    recipient.error_message = title
+    recipient.extra = extra
+    recipient.save(update_fields=["status", "error_message", "extra"])
+    campaign.failed_count += 1
+    campaign.last_error = f"{title} · {raw}"[:800]
+    campaign.save(update_fields=["failed_count", "last_error", "updated_at"])
 
 
 def _open_smtp(app: AppSettings, previous=None):
@@ -504,17 +564,16 @@ def run_campaign(campaign_id: int, limit: int | None = None) -> None:
                     break
                 except Exception as exc:
                     last_exc = exc
+                    # Bounce/timeout often kills the Hostinger SMTP session.
+                    # Close + reopen so the *next* address still sends.
                     connection = _open_smtp(app, connection)
+                    if _is_permanent_bounce(exc) or _is_ratelimit(exc):
+                        break
                     if _smtp_connection_dead(exc) and attempt == 0:
                         continue
                     break
             if not sent_ok and last_exc is not None:
-                recipient.status = Recipient.Status.FAILED
-                recipient.error_message = str(last_exc)[:800]
-                recipient.save(update_fields=["status", "error_message"])
-                campaign.failed_count += 1
-                campaign.last_error = str(last_exc)[:800]
-                campaign.save(update_fields=["failed_count", "last_error", "updated_at"])
+                _mark_failed(recipient, campaign, last_exc)
                 if _is_ratelimit(last_exc):
                     time.sleep(max(delay, 8.0))
 

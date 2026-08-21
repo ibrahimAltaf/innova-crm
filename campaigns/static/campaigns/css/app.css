@@ -227,6 +227,22 @@ body {
   text-transform: capitalize;
 }
 
+.fail-reason {
+  max-width: 340px;
+}
+.fail-reason-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #be123c;
+  line-height: 1.35;
+}
+.fail-reason-smtp {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #64748b;
+  word-break: break-word;
+}
+
 .badge-status.draft,
 .badge-status.queued {
   background: #f2f4f7;

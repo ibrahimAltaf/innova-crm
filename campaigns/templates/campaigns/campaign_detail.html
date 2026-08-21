@@ -100,14 +100,14 @@
       {% if recipients %}
       <div class="table-responsive" style="max-height:360px;">
         <table class="table table-sm">
-          <thead><tr><th>Email</th><th>Name</th><th>Status</th><th>Error</th></tr></thead>
+          <thead><tr><th>Email</th><th>Name</th><th>Status</th><th>Reason</th></tr></thead>
           <tbody>
             {% for r in recipients %}
             <tr>
               <td>{{ r.email }}</td>
               <td>{{ r.name }}</td>
               <td><span class="badge-status {{ r.status }}">{{ r.status }}</span></td>
-              <td class="small text-danger">{{ r.error_message|truncatechars:60 }}</td>
+              <td>{% include "campaigns/_fail_reason.html" %}</td>
             </tr>
             {% endfor %}
           </tbody>

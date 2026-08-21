@@ -1,0 +1,10 @@
+{% if r.status == "failed" or r.error_message %}
+<div class="fail-reason">
+  <div class="fail-reason-title">{{ r.fail_reason|default:r.error_message }}</div>
+  {% if r.fail_detail %}
+  <div class="fail-reason-smtp" title="{{ r.fail_detail }}">{{ r.fail_detail|truncatechars:120 }}</div>
+  {% endif %}
+</div>
+{% else %}
+<span class="text-secondary">—</span>
+{% endif %}

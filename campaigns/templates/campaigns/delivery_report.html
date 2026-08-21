@@ -55,7 +55,7 @@
           <th>Campaign</th>
           <th>Status</th>
           <th>Sent at</th>
-          <th>Error</th>
+          <th>Reason</th>
         </tr>
       </thead>
       <tbody>
@@ -68,7 +68,7 @@
           <td><a href="{% url 'campaigns:detail' r.campaign_id %}">{{ r.campaign.name }}</a></td>
           <td><span class="badge-status {{ r.status }}">{{ r.get_status_display }}</span></td>
           <td class="small">{{ r.sent_at|date:"M j, H:i"|default:"—" }}</td>
-          <td class="small text-danger">{{ r.error_message|truncatechars:80 }}</td>
+          <td>{% include "campaigns/_fail_reason.html" %}</td>
         </tr>
         {% endfor %}
       </tbody>
