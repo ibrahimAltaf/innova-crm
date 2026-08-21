@@ -1,0 +1,81 @@
+{% extends "campaigns/base.html" %}
+{% block title %}Delivery report · Innova CRM{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <div>
+    <h1 class="page-title h3 mb-1">Delivery report</h1>
+    <p class="page-kicker mb-0">See who got the email, who failed, and who is still pending.</p>
+  </div>
+  <a class="btn btn-primary" href="{% url 'campaigns:list' %}">Campaigns</a>
+</div>
+
+<div class="row g-2 mb-4">
+  <div class="col-6 col-md-3"><a class="status-tile {% if not status %}is-active{% endif %}" href="?{% if q %}q={{ q }}&{% endif %}{% if campaign_id %}campaign={{ campaign_id }}{% endif %}"><span class="status-tile-label">All</span><strong>{{ summary.pending|add:summary.sent|add:summary.failed|add:summary.skipped }}</strong></a></div>
+  <div class="col-6 col-md-3"><a class="status-tile status-tile-won {% if status == 'sent' %}is-active{% endif %}" href="?status=sent{% if q %}&q={{ q }}{% endif %}{% if campaign_id %}&campaign={{ campaign_id }}{% endif %}"><span class="status-tile-label">Delivered</span><strong>{{ summary.sent }}</strong></a></div>
+  <div class="col-6 col-md-3"><a class="status-tile status-tile-lost {% if status == 'failed' %}is-active{% endif %}" href="?status=failed{% if q %}&q={{ q }}{% endif %}{% if campaign_id %}&campaign={{ campaign_id }}{% endif %}"><span class="status-tile-label">Failed</span><strong>{{ summary.failed }}</strong></a></div>
+  <div class="col-6 col-md-3"><a class="status-tile status-tile-contacted {% if status == 'pending' %}is-active{% endif %}" href="?status=pending{% if q %}&q={{ q }}{% endif %}{% if campaign_id %}&campaign={{ campaign_id }}{% endif %}"><span class="status-tile-label">Pending</span><strong>{{ summary.pending }}</strong></a></div>
+</div>
+
+<form class="panel p-3 mb-4" method="get">
+  <div class="row g-2 align-items-end">
+    <div class="col-md-4">
+      <label class="form-label">Search</label>
+      <input class="form-control" name="q" value="{{ q }}" placeholder="Email or name">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Campaign</label>
+      <select class="form-select" name="campaign">
+        <option value="">All campaigns</option>
+        {% for c in campaigns %}
+          <option value="{{ c.pk }}" {% if campaign_id == c.pk|stringformat:"s" %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label">Status</label>
+      <select class="form-select" name="status">
+        <option value="">All</option>
+        <option value="sent" {% if status == "sent" %}selected{% endif %}>Delivered</option>
+        <option value="failed" {% if status == "failed" %}selected{% endif %}>Failed</option>
+        <option value="pending" {% if status == "pending" %}selected{% endif %}>Pending</option>
+        <option value="skipped" {% if status == "skipped" %}selected{% endif %}>Skipped</option>
+      </select>
+    </div>
+    <div class="col-md-2"><button class="btn btn-outline-primary w-100" type="submit">Filter</button></div>
+  </div>
+</form>
+
+<div class="panel p-0 overflow-hidden">
+  {% if rows %}
+  <div class="table-responsive">
+    <table class="table align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Recipient</th>
+          <th>Campaign</th>
+          <th>Status</th>
+          <th>Sent at</th>
+          <th>Error</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>
+            <div class="fw-semibold">{{ r.name|default:"—" }}</div>
+            <div class="small text-secondary">{{ r.email }}</div>
+          </td>
+          <td><a href="{% url 'campaigns:detail' r.campaign_id %}">{{ r.campaign.name }}</a></td>
+          <td><span class="badge-status {{ r.status }}">{{ r.get_status_display }}</span></td>
+          <td class="small">{{ r.sent_at|date:"M j, H:i"|default:"—" }}</td>
+          <td class="small text-danger">{{ r.error_message|truncatechars:80 }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="text-secondary p-4 mb-0">No rows for this filter. Send a campaign first.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,11 +1,30 @@
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from decimal import Decimal
 
 from django.db.models import Count, Q, Sum
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
-from .models import Activity, Campaign, Contact, Lead, Recipient, Unsubscribe
+from .models import Activity, AppSettings, Campaign, Contact, EmailTemplate, Lead, Recipient, SendLog, Unsubscribe
+
+
+def send_quota(app: AppSettings | None = None) -> dict:
+    """Track today's CRM sends vs configured daily limit (Hostinger has no public remaining-quota API)."""
+    app = app or AppSettings.load()
+    today = timezone.localdate()
+    start = timezone.make_aware(datetime.combine(today, time.min))
+    sent_today = SendLog.objects.filter(created_at__gte=start).count()
+    limit = max(1, int(app.daily_send_limit or 3000))
+    remaining = max(0, limit - sent_today)
+    percent = min(100, int((sent_today / limit) * 100))
+    return {
+        "sent_today": sent_today,
+        "limit": limit,
+        "remaining": remaining,
+        "percent": percent,
+        "exhausted": remaining <= 0,
+        "warning": remaining <= max(20, int(limit * 0.1)),
+    }
 
 
 def dashboard_payload():
@@ -40,11 +59,19 @@ def dashboard_payload():
     start = timezone.now() - timedelta(days=13)
     sent_map = {
         row["day"]: row["n"]
-        for row in Recipient.objects.filter(status=Recipient.Status.SENT, sent_at__gte=start)
-        .annotate(day=TruncDate("sent_at"))
+        for row in SendLog.objects.filter(created_at__gte=start)
+        .annotate(day=TruncDate("created_at"))
         .values("day")
         .annotate(n=Count("id"))
     }
+    if not sent_map:
+        sent_map = {
+            row["day"]: row["n"]
+            for row in Recipient.objects.filter(status=Recipient.Status.SENT, sent_at__gte=start)
+            .annotate(day=TruncDate("sent_at"))
+            .values("day")
+            .annotate(n=Count("id"))
+        }
     email_trend = []
     for offset in range(13, -1, -1):
         day = (timezone.now() - timedelta(days=offset)).date()
@@ -70,9 +97,12 @@ def dashboard_payload():
         "open": Lead.objects.filter(open_q).count(),
         "unsubscribed": Unsubscribe.objects.count(),
         "campaigns": Campaign.objects.count(),
+        "delivered": Recipient.objects.filter(status=Recipient.Status.SENT).count(),
+        "pending": Recipient.objects.filter(status=Recipient.Status.PENDING).count(),
     }
     return {
         "stats": stats,
+        "quota": send_quota(),
         "funnel": funnel,
         "sources": sources,
         "email_trend": email_trend,

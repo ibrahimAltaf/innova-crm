@@ -45,6 +45,9 @@
           <a href="{% url 'campaigns:list' %}" class="{% if 'campaign' in request.resolver_match.url_name or 'editor' in request.resolver_match.url_name or request.resolver_match.url_name == 'create' or request.resolver_match.url_name == 'create_template' or request.resolver_match.url_name == 'recipients' %}active{% endif %}">
             <i class="bi bi-send"></i> Campaigns
           </a>
+          <a href="{% url 'campaigns:delivery' %}" class="{% if request.resolver_match.url_name == 'delivery' %}active{% endif %}">
+            <i class="bi bi-clipboard-check"></i> Delivery
+          </a>
           <a href="{% url 'campaigns:statistics' %}" class="{% if request.resolver_match.url_name == 'statistics' %}active{% endif %}">
             <i class="bi bi-bar-chart"></i> Statistics
           </a>
@@ -54,7 +57,11 @@
         </nav>
       </div>
       <div class="sidebar-note">
-        Pick an editor, paste or build the email, send a test, then watch sent vs failed live.
+        <div class="mb-2"><strong>{{ request.user.username }}</strong></div>
+        <form method="post" action="{% url 'campaigns:logout' %}">
+          {% csrf_token %}
+          <button class="btn btn-sm btn-outline-light w-100" type="submit">Sign out</button>
+        </form>
       </div>
     </aside>
     <main class="main">

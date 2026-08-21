@@ -228,6 +228,27 @@ class Unsubscribe(models.Model):
         return self.email
 
 
+class SendLog(models.Model):
+    """Every successful SMTP send (campaign + test) for daily quota tracking."""
+
+    class Kind(models.TextChoices):
+        CAMPAIGN = "campaign", "Campaign"
+        TEST = "test", "Test"
+
+    email = models.EmailField()
+    campaign = models.ForeignKey(
+        Campaign, null=True, blank=True, on_delete=models.SET_NULL, related_name="send_logs"
+    )
+    kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.CAMPAIGN)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.email} · {self.kind}"
+
+
 class AppSettings(models.Model):
     smtp_host = models.CharField(max_length=200, blank=True)
     smtp_port = models.PositiveIntegerField(default=587)
@@ -257,6 +278,10 @@ class AppSettings(models.Model):
     )
     batch_pause_every = models.PositiveIntegerField(default=80)
     batch_pause_seconds = models.FloatField(default=8.0)
+    daily_send_limit = models.PositiveIntegerField(
+        default=3000,
+        help_text="Hostinger Premium ≈ 3000/day per mailbox. Starter ≈ 1000. Free ≈ 100.",
+    )
 
     class Meta:
         verbose_name = "App settings"

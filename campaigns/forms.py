@@ -234,6 +234,7 @@ class SettingsForm(forms.ModelForm):
             "logo",
             "logo_url",
             "brand_color",
+            "daily_send_limit",
             "delay_seconds",
             "batch_pause_every",
             "batch_pause_seconds",
@@ -256,6 +257,7 @@ class SettingsForm(forms.ModelForm):
                 attrs={"class": "form-control", "placeholder": "https://innovafior.online/logo.png"}
             ),
             "brand_color": forms.TextInput(attrs={"class": "form-control", "type": "color"}),
+            "daily_send_limit": forms.NumberInput(attrs={"class": "form-control", "min": "1"}),
             "delay_seconds": forms.NumberInput(attrs={"class": "form-control", "step": "0.1", "min": "0.05"}),
             "batch_pause_every": forms.NumberInput(attrs={"class": "form-control", "min": "1"}),
             "batch_pause_seconds": forms.NumberInput(attrs={"class": "form-control", "step": "0.5", "min": "0"}),

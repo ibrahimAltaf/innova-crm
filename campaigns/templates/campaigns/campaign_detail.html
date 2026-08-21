@@ -13,6 +13,7 @@
   <div class="d-flex flex-wrap gap-2">
     <a class="btn btn-outline-secondary" href="{% url 'campaigns:edit' campaign.pk %}">Edit email</a>
     <a class="btn btn-outline-secondary" href="{% url 'campaigns:recipients' campaign.pk %}">Add people</a>
+    <a class="btn btn-outline-primary" href="{% url 'campaigns:delivery' %}?campaign={{ campaign.pk }}">Full report</a>
     <a class="btn btn-outline-primary" target="_blank" href="{% url 'campaigns:preview' campaign.pk %}">Open preview</a>
     {% if campaign.status != "sending" %}
       {% if campaign.total_recipients %}

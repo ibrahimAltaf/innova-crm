@@ -15,10 +15,18 @@ from django.core.mail import EmailMultiAlternatives, get_connection
 from django.urls import reverse
 from django.utils import timezone
 
-from .models import AppSettings, Campaign, Recipient, Unsubscribe
+from .models import AppSettings, Campaign, Recipient, SendLog, Unsubscribe
 
 _SEND_LOCK = Lock()
 _RUNNING = set()
+
+
+def record_send(email: str, *, campaign: Campaign | None = None, kind: str = SendLog.Kind.CAMPAIGN) -> None:
+    SendLog.objects.create(
+        email=(email or "").strip().lower(),
+        campaign=campaign,
+        kind=kind,
+    )
 
 
 def _nl2br(text: str) -> str:
@@ -385,6 +393,7 @@ def send_one(campaign: Campaign, recipient: Recipient, app: AppSettings, connect
     recipient.save(update_fields=["status", "sent_at", "error_message"])
     campaign.sent_count += 1
     campaign.save(update_fields=["sent_count", "updated_at"])
+    record_send(recipient.email, campaign=campaign, kind=SendLog.Kind.CAMPAIGN)
 
 
 def send_test(campaign: Campaign, to_email: str) -> None:
@@ -403,6 +412,7 @@ def send_test(campaign: Campaign, to_email: str) -> None:
             save_copy_to_sent(app, msg.message().as_bytes())
         except Exception:
             pass
+        record_send(to_email, campaign=campaign, kind=SendLog.Kind.TEST)
 
 
 def prepare_campaign_for_send(campaign: Campaign) -> int:

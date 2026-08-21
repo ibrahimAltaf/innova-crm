@@ -1,5 +1,6 @@
 from django.core.paginator import Paginator
 from django.contrib import messages
+from django.contrib.auth.decorators import login_not_required
 from django.db.models import Count, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -12,7 +13,7 @@ import json
 import os
 
 from .catalog import DEFAULT_TEMPLATES
-from .analytics import dashboard_payload
+from .analytics import dashboard_payload, send_quota
 from .forms import (
     CampaignForm,
     ContactForm,
@@ -37,6 +38,10 @@ from .mailer import (
 )
 from .models import Activity, AppSettings, Campaign, Contact, EmailTemplate, Lead, Recipient, Unsubscribe
 from .utils import ensure_templates
+from .auth_views import CrmLoginView, CrmLogoutView
+
+login_view = CrmLoginView.as_view()
+logout_view = CrmLogoutView.as_view()
 
 
 def dashboard(request):
@@ -144,6 +149,34 @@ def campaign_detail(request, pk):
             "status_counts": status_counts,
             "test_form": test_form,
             "preview_html": preview_html,
+        },
+    )
+
+
+def delivery_report(request):
+    status = (request.GET.get("status") or "").strip()
+    q = (request.GET.get("q") or "").strip()
+    campaign_id = (request.GET.get("campaign") or "").strip()
+    rows = Recipient.objects.select_related("campaign").order_by("-id")
+    if status:
+        rows = rows.filter(status=status)
+    if campaign_id.isdigit():
+        rows = rows.filter(campaign_id=int(campaign_id))
+    if q:
+        rows = rows.filter(Q(email__icontains=q) | Q(name__icontains=q))
+    summary = {
+        key: Recipient.objects.filter(status=key).count() for key, _ in Recipient.Status.choices
+    }
+    return render(
+        request,
+        "campaigns/delivery_report.html",
+        {
+            "rows": rows[:500],
+            "summary": summary,
+            "status": status,
+            "q": q,
+            "campaign_id": campaign_id,
+            "campaigns": Campaign.objects.all()[:50],
         },
     )
 
@@ -354,6 +387,22 @@ def campaign_send(request, pk):
         return redirect("campaigns:settings")
     if campaign.status == Campaign.Status.SENDING and campaign.pk in _RUNNING:
         messages.info(request, "Already sending.")
+        return redirect("campaigns:detail", pk=pk)
+    quota = send_quota(app)
+    pending_now = campaign.recipients.filter(status=Recipient.Status.PENDING).count()
+    planned = pending_now or campaign.recipients.exclude(status=Recipient.Status.SKIPPED).count()
+    if quota["exhausted"]:
+        messages.error(
+            request,
+            f"Daily send limit reached ({quota['limit']}/day). Wait until tomorrow or raise the limit in Brand & SMTP.",
+        )
+        return redirect("campaigns:detail", pk=pk)
+    if planned > quota["remaining"]:
+        messages.error(
+            request,
+            f"Only {quota['remaining']} emails left today (limit {quota['limit']}). "
+            "Send a smaller batch or raise the daily limit in Brand & SMTP.",
+        )
         return redirect("campaigns:detail", pk=pk)
     pending = prepare_campaign_for_send(campaign)
     if pending == 0:
@@ -647,6 +696,7 @@ def template_edit(request, pk):
     )
 
 
+@login_not_required
 def unsubscribe(request, token):
     recipient = get_object_or_404(Recipient, unsubscribe_token=token)
     Unsubscribe.objects.get_or_create(email=recipient.email.lower())

@@ -58,6 +58,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "django.contrib.auth.middleware.LoginRequiredMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -174,3 +175,7 @@ if os.getenv("VERCEL") and not os.getenv("SITE_URL"):
     vercel_url = vercel_url.replace("https://", "").replace("http://", "").strip("/")
     if vercel_url:
         SITE_URL = f"https://{vercel_url}"
+
+LOGIN_URL = "campaigns:login"
+LOGIN_REDIRECT_URL = "campaigns:dashboard"
+LOGOUT_REDIRECT_URL = "campaigns:login"

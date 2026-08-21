@@ -1,3 +1,4 @@
+from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
@@ -7,7 +8,15 @@ from campaigns.models import AppSettings, Campaign, EmailTemplate, Recipient
 from campaigns.utils import ensure_templates
 
 
-class TemplateTests(TestCase):
+class AuthMixin:
+    def setUp(self):
+        super().setUp()
+        User = get_user_model()
+        self.user = User.objects.create_user(username="admin", password="pass123")
+        self.client.login(username="admin", password="pass123")
+
+
+class TemplateTests(AuthMixin, TestCase):
     def test_core_placeholders(self):
         required = ["heading", "body", "name", "company_name", "unsubscribe_url", "cta_block", "logo_block"]
         for item in DEFAULT_TEMPLATES:
@@ -50,6 +59,12 @@ class TemplateTests(TestCase):
         response = self.client.get(reverse("campaigns:templates"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Newsletter")
+
+    def test_login_required(self):
+        self.client.logout()
+        response = self.client.get(reverse("campaigns:dashboard"))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/login/", response.url)
 
     def test_template_create_without_slug_or_html(self):
         response = self.client.post(
@@ -169,7 +184,7 @@ class TemplateTests(TestCase):
         self.assertContains(preview, "Visible headline")
 
 
-class ContactBulkTests(TestCase):
+class ContactBulkTests(AuthMixin, TestCase):
     def test_search_and_bulk_add(self):
         ensure_templates()
         tpl = EmailTemplate.objects.get(slug="newsletter")
@@ -229,7 +244,7 @@ class ContactBulkTests(TestCase):
         self.assertEqual(kwargs["host"], "smtp.hostinger.com")
 
 
-class SmtpRecoveryTests(TestCase):
+class SmtpRecoveryTests(AuthMixin, TestCase):
     def test_dead_connection_is_detected(self):
         from campaigns.mailer import _is_ratelimit, _smtp_connection_dead
 
@@ -239,7 +254,7 @@ class SmtpRecoveryTests(TestCase):
         self.assertTrue(_is_ratelimit(RuntimeError('451 4.7.1 Ratelimit "hostinger_out_ratelimit" exceeded')))
 
 
-class PipelineTests(TestCase):
+class PipelineTests(AuthMixin, TestCase):
     def test_dashboard_pipeline_and_move(self):
         from campaigns.models import Activity, Lead
 
@@ -261,3 +276,24 @@ class PipelineTests(TestCase):
         lead.refresh_from_db()
         self.assertEqual(lead.status, "qualified")
         self.assertTrue(Activity.objects.filter(lead=lead, kind="status").exists())
+
+    def test_delivery_report(self):
+        ensure_templates()
+        tpl = EmailTemplate.objects.get(slug="newsletter")
+        campaign = Campaign.objects.create(
+            name="Blast",
+            template=tpl,
+            subject="Hi",
+            heading="Hi",
+            body="Body",
+        )
+        Recipient.objects.create(campaign=campaign, email="ok@ex.com", name="Ok", status="sent")
+        Recipient.objects.create(
+            campaign=campaign, email="bad@ex.com", name="Bad", status="failed", error_message="SMTP error"
+        )
+        report = self.client.get(reverse("campaigns:delivery") + "?status=failed")
+        self.assertEqual(report.status_code, 200)
+        self.assertContains(report, "bad@ex.com")
+        self.assertContains(report, "SMTP error")
+        dash = self.client.get(reverse("campaigns:dashboard"))
+        self.assertContains(dash, "Hostinger send quota")

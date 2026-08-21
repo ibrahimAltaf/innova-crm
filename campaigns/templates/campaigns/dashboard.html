@@ -6,10 +6,36 @@
     <h1 class="page-title h3 mb-1">Dashboard</h1>
     <p class="page-kicker mb-0">Pipeline, outreach, and follow-ups in one place.</p>
   </div>
-  <div class="d-flex gap-2">
+  <div class="d-flex gap-2 flex-wrap">
+    <a class="btn btn-outline-primary" href="{% url 'campaigns:delivery' %}">Delivery report</a>
     <a class="btn btn-outline-primary" href="{% url 'campaigns:leads' %}">Lead board</a>
     <a class="btn btn-primary" href="{% url 'campaigns:create' %}">New campaign</a>
   </div>
+</div>
+
+<div class="panel p-4 mb-4 {% if quota.exhausted %}border-danger{% elif quota.warning %}border-warning{% endif %}">
+  <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+    <div>
+      <h2 class="h6 mb-1">Hostinger send quota · today</h2>
+      <p class="small text-secondary mb-0">Campaign + test sends from this CRM. Premium ≈ 3000/day per mailbox.</p>
+    </div>
+    <a class="small" href="{% url 'campaigns:settings' %}">Edit limit</a>
+  </div>
+  <div class="d-flex justify-content-between align-items-end mb-2">
+    <div>
+      <strong class="fs-4">{{ quota.remaining }}</strong>
+      <span class="text-secondary">left of {{ quota.limit }}</span>
+    </div>
+    <div class="text-secondary">Sent today: <strong>{{ quota.sent_today }}</strong></div>
+  </div>
+  <div class="progress" style="height:10px;">
+    <div class="progress-bar {% if quota.exhausted %}bg-danger{% elif quota.warning %}bg-warning{% endif %}" style="width: {{ quota.percent }}%"></div>
+  </div>
+  {% if quota.exhausted %}
+    <p class="small text-danger mb-0 mt-2">Daily limit used. Wait for the next 24h window or lower today’s sends.</p>
+  {% elif quota.warning %}
+    <p class="small text-warning mb-0 mt-2">Running low — keep batches small (100–200).</p>
+  {% endif %}
 </div>
 
 <div class="row g-3 mb-4">

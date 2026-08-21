@@ -5,7 +5,10 @@ from . import editors, views
 app_name = "campaigns"
 
 urlpatterns = [
+    path("login/", views.login_view, name="login"),
+    path("logout/", views.logout_view, name="logout"),
     path("", views.dashboard, name="dashboard"),
+    path("delivery/", views.delivery_report, name="delivery"),
     path("templates/", views.template_gallery, name="templates"),
     path("campaigns/", views.campaign_list, name="list"),
     path("campaigns/new/", editors.campaign_picker, name="create"),
