@@ -1,0 +1,7 @@
+{
+  "name": "innova-crm",
+  "private": true,
+  "scripts": {
+    "build": "bash build_files.sh"
+  }
+}

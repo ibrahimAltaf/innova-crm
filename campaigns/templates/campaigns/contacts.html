@@ -67,6 +67,7 @@
             <button class="btn btn-outline-secondary btn-sm" type="button" id="pick-none">None</button>
             <button class="btn btn-outline-primary" type="submit">Add to campaign</button>
             <button class="btn btn-success" type="submit" name="send_now" value="1">Add &amp; send now</button>
+            <button class="btn btn-outline-danger" type="submit" formaction="{% url 'campaigns:contacts_bulk_delete' %}" form="bulk-form" onclick="return confirm('Remove selected contacts from your list?');">Remove selected</button>
           </div>
           <p class="form-text mb-0 mt-2">20 / 50 / 100 / 500 uses the current search. After adding, open the campaign and send in batches of <strong>20 / 100 / 500</strong> so you can watch sent vs failed live.</p>
         </div>

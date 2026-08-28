@@ -75,7 +75,7 @@
     </div>
   </div>
   <div class="col-lg-6">
-    <div class="panel p-4">
+    <div class="panel p-4 mb-4">
       <h2 class="h6">CSV / paste</h2>
       <form method="post" enctype="multipart/form-data">
         {% csrf_token %}
@@ -91,6 +91,56 @@
         <a class="btn btn-outline-secondary" href="{% url 'campaigns:detail' campaign.pk %}">Back</a>
       </form>
     </div>
+    {% if campaign_recipients %}
+    <div class="panel p-4">
+      <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h2 class="h6 mb-0">On this campaign ({{ campaign.total_recipients }})</h2>
+        {% if campaign.status != "sending" %}
+        <form method="post" action="{% url 'campaigns:recipients_remove' campaign.pk %}" onsubmit="return confirm('Remove all pending emails?');">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="remove_all_pending">
+          <input type="hidden" name="next" value="{% url 'campaigns:recipients' campaign.pk %}">
+          <button class="btn btn-sm btn-outline-danger" type="submit">Remove all pending</button>
+        </form>
+        {% endif %}
+      </div>
+      <form method="post" action="{% url 'campaigns:recipients_remove' campaign.pk %}" id="on-campaign-remove">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{% url 'campaigns:recipients' campaign.pk %}">
+        {% if campaign.status != "sending" %}
+        <button class="btn btn-sm btn-outline-danger mb-2" type="submit" onclick="return confirm('Remove selected from campaign?');">Remove selected</button>
+        {% endif %}
+        <div class="table-responsive" style="max-height:280px;">
+          <table class="table table-sm">
+            <thead><tr>{% if campaign.status != "sending" %}<th style="width:32px"></th>{% endif %}<th>Email</th><th>Status</th>{% if campaign.status != "sending" %}<th></th>{% endif %}</tr></thead>
+            <tbody>
+              {% for r in campaign_recipients %}
+              <tr>
+                {% if campaign.status != "sending" %}
+                <td><input class="form-check-input" type="checkbox" name="recipient_ids" value="{{ r.pk }}"></td>
+                {% endif %}
+                <td>{{ r.email }}</td>
+                <td><span class="badge-status {{ r.status }}">{{ r.status }}</span></td>
+                {% if campaign.status != "sending" %}
+                <td class="text-end">
+                  <button class="btn btn-sm btn-outline-danger" type="submit" form="rm-{{ r.pk }}">Remove</button>
+                </td>
+                {% endif %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </form>
+      {% for r in campaign_recipients %}
+      <form id="rm-{{ r.pk }}" method="post" action="{% url 'campaigns:recipients_remove' campaign.pk %}" onsubmit="return confirm('Remove {{ r.email }}?');">
+        {% csrf_token %}
+        <input type="hidden" name="recipient_id" value="{{ r.pk }}">
+        <input type="hidden" name="next" value="{% url 'campaigns:recipients' campaign.pk %}">
+      </form>
+      {% endfor %}
+    </div>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

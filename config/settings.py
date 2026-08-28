@@ -109,17 +109,19 @@ elif db_url:
             },
         }
     }
-elif USE_POSTGRES or os.getenv("POSTGRES_HOST"):
+elif USE_POSTGRES:
+    host = os.getenv("POSTGRES_HOST") or os.getenv("PGHOST", "127.0.0.1")
+    sslmode = os.getenv("POSTGRES_SSLMODE") or ("disable" if host in {"127.0.0.1", "localhost"} else "require")
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
             "NAME": os.getenv("POSTGRES_DATABASE") or os.getenv("POSTGRES_DB") or os.getenv("PGDATABASE", "innovacrm"),
             "USER": os.getenv("POSTGRES_USER") or os.getenv("PGUSER", "postgres"),
             "PASSWORD": os.getenv("POSTGRES_PASSWORD") or os.getenv("PGPASSWORD", "postgres"),
-            "HOST": os.getenv("POSTGRES_HOST") or os.getenv("PGHOST", "127.0.0.1"),
+            "HOST": host,
             "PORT": os.getenv("POSTGRES_PORT", "5432"),
             "OPTIONS": {
-                "sslmode": "require",
+                "sslmode": sslmode,
             },
         }
     }

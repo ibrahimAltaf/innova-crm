@@ -288,7 +288,9 @@ def build_message(campaign: Campaign, recipient: Recipient, app: AppSettings, co
     text += f"\n\nUnsubscribe: {unsubscribe_url}\n{app.company_name}\n{app.company_address}\n"
 
     from_email = formataddr((app.from_name or dj_settings.DEFAULT_FROM_NAME, app.from_email or dj_settings.DEFAULT_FROM_EMAIL))
-    reply_to = [app.reply_to] if app.reply_to else None
+    reply_addr = (app.reply_to or app.from_email or dj_settings.REPLY_TO_EMAIL or dj_settings.DEFAULT_FROM_EMAIL).strip()
+    reply_to = [reply_addr] if reply_addr else None
+    from_domain = (app.from_email or dj_settings.DEFAULT_FROM_EMAIL or "localhost").split("@")[-1]
 
     msg = EmailMultiAlternatives(
         subject=campaign.subject,
@@ -298,9 +300,10 @@ def build_message(campaign: Campaign, recipient: Recipient, app: AppSettings, co
         reply_to=reply_to,
         connection=connection,
         headers={
-            "Message-ID": make_msgid(domain=(app.from_email or "localhost").split("@")[-1]),
+            "Message-ID": make_msgid(domain=from_domain),
             "List-Unsubscribe": f"<{unsubscribe_url}>",
             "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+            "List-Id": f"<campaign-{campaign.pk}.{from_domain}>",
         },
     )
     html = attach_data_uri_images(html, msg)

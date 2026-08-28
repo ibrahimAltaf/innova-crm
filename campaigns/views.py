@@ -283,6 +283,7 @@ def campaign_recipients(request, pk):
                         added += 1
                 messages.success(request, f"Added {added} recipients. Skipped {skipped}.")
                 return redirect("campaigns:detail", pk=campaign.pk)
+    campaign_recipient_rows = campaign.recipients.order_by("-id")[:500]
     return render(
         request,
         "campaigns/recipients.html",
@@ -292,8 +293,57 @@ def campaign_recipients(request, pk):
             "contacts": contacts[:1500],
             "contact_count": contacts.count(),
             "leads": leads,
+            "campaign_recipients": campaign_recipient_rows,
         },
     )
+
+
+def _sync_campaign_counts(campaign: Campaign) -> None:
+    """Keep campaign counters aligned after recipient rows are removed."""
+    counts = {
+        row["status"]: row["n"]
+        for row in campaign.recipients.values("status").annotate(n=Count("id"))
+    }
+    campaign.sent_count = counts.get(Recipient.Status.SENT, 0)
+    campaign.failed_count = counts.get(Recipient.Status.FAILED, 0)
+    campaign.skipped_count = counts.get(Recipient.Status.SKIPPED, 0)
+    campaign.save(update_fields=["sent_count", "failed_count", "skipped_count", "updated_at"])
+
+
+def _recipients_remove_blocked(campaign: Campaign) -> bool:
+    return campaign.status == Campaign.Status.SENDING or campaign.pk in _RUNNING
+
+
+@require_POST
+def campaign_recipients_remove(request, pk):
+    campaign = get_object_or_404(Campaign, pk=pk)
+    if _recipients_remove_blocked(campaign):
+        messages.error(request, "Pause sending before removing recipients.")
+        return redirect("campaigns:detail", pk=pk)
+
+    recipient_ids = request.POST.getlist("recipient_ids")
+    remove_all = request.POST.get("action") == "remove_all_pending"
+    qs = campaign.recipients.all()
+    if remove_all:
+        qs = qs.filter(status=Recipient.Status.PENDING)
+    elif recipient_ids:
+        qs = qs.filter(pk__in=recipient_ids)
+    else:
+        single = request.POST.get("recipient_id")
+        if single:
+            qs = qs.filter(pk=single)
+        else:
+            messages.error(request, "Select at least one email to remove.")
+            return redirect(request.POST.get("next") or reverse("campaigns:detail", args=[pk]))
+
+    removed = qs.count()
+    if not removed:
+        messages.info(request, "Nothing to remove.")
+    else:
+        qs.delete()
+        _sync_campaign_counts(campaign)
+        messages.success(request, f"Removed {removed} email(s) from this campaign.")
+    return redirect(request.POST.get("next") or reverse("campaigns:detail", args=[pk]))
 
 
 def _contacts_from_post(request):
@@ -387,6 +437,32 @@ def contact_delete(request, pk):
     contact = get_object_or_404(Contact, pk=pk)
     contact.delete()
     messages.success(request, "Contact removed.")
+    return redirect("campaigns:contacts")
+
+
+@require_POST
+def contacts_bulk_delete(request):
+    mode = (request.POST.get("mode") or "selected").strip()
+    q = (request.POST.get("q") or "").strip()
+    qs = Contact.objects.all()
+    if q:
+        qs = qs.filter(
+            Q(email__icontains=q) | Q(name__icontains=q) | Q(company__icontains=q) | Q(phone__icontains=q)
+        )
+    if mode == "selected":
+        qs = qs.filter(pk__in=request.POST.getlist("contact_ids"))
+    elif mode != "all":
+        try:
+            limit = int(mode)
+        except ValueError:
+            limit = 50
+        qs = qs[: max(1, min(limit, 5000))]
+    removed = qs.count()
+    if not removed:
+        messages.error(request, "Select contacts to remove first.")
+    else:
+        qs.delete()
+        messages.success(request, f"Removed {removed} contact(s).")
     return redirect("campaigns:contacts")
 
 

@@ -63,12 +63,14 @@
       </ul>
     </div>
     <div class="panel p-4">
-      <h2 class="h6">DNS you must add</h2>
-      <ol class="small mb-0">
-        <li>SPF on your sending domain</li>
-        <li>DKIM from your ESP</li>
-        <li>DMARC (<code>p=none</code> first, then quarantine)</li>
-      </ol>
+      <h2 class="h6">If mail lands in spam</h2>
+      <ul class="small mb-0">
+        <li>Turn on <strong>SPF + DKIM + DMARC</strong> for the same domain as your From address.</li>
+        <li>Set <strong>Reply-To</strong> to the same domain as From (not a different free Gmail).</li>
+        <li>Send a <strong>test to one inbox</strong> first — blasting the same copy to many Gmail addresses in a row triggers spam filters.</li>
+        <li>Use <strong>Send 20 / 100 / 500</strong> batches with pauses (already built in for Hostinger).</li>
+        <li>Warm up a new domain for 7–14 days with small volume before big sends.</li>
+      </ul>
     </div>
   </div>
 </div>

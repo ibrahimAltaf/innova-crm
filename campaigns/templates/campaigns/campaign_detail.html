@@ -96,29 +96,62 @@
           <button class="btn btn-sm btn-outline-secondary" type="submit">Search</button>
         </form>
       </div>
-      <div class="d-flex flex-wrap gap-2 mb-3">
+      <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
         <a class="btn btn-sm {% if not recipient_status %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?rq={{ recipient_q }}">All ({{ campaign.total_recipients }})</a>
         <a class="btn btn-sm {% if recipient_status == 'sent' %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?rstatus=sent&rq={{ recipient_q }}">Sent ({{ status_counts.sent|default:0 }})</a>
         <a class="btn btn-sm {% if recipient_status == 'failed' %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?rstatus=failed&rq={{ recipient_q }}">Failed ({{ status_counts.failed|default:0 }})</a>
         <a class="btn btn-sm {% if recipient_status == 'pending' %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?rstatus=pending&rq={{ recipient_q }}">Pending ({{ status_counts.pending|default:0 }})</a>
         <a class="btn btn-sm {% if recipient_status == 'skipped' %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="?rstatus=skipped&rq={{ recipient_q }}">Skipped ({{ status_counts.skipped|default:0 }})</a>
+        {% if campaign.status != "sending" and status_counts.pending %}
+        <form method="post" action="{% url 'campaigns:recipients_remove' campaign.pk %}" class="ms-auto" onsubmit="return confirm('Remove all pending emails from this campaign?');">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="remove_all_pending">
+          <input type="hidden" name="next" value="{{ request.get_full_path }}">
+          <button class="btn btn-sm btn-outline-danger" type="submit">Remove all pending</button>
+        </form>
+        {% endif %}
       </div>
       {% if recipients %}
+      <form method="post" action="{% url 'campaigns:recipients_remove' campaign.pk %}" id="recipient-remove-form">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        {% if campaign.status != "sending" %}
+        <div class="d-flex flex-wrap gap-2 mb-2 align-items-center">
+          <button class="btn btn-sm btn-outline-danger" type="submit" onclick="return confirm('Remove selected emails from this campaign?');">Remove selected</button>
+          <span class="small text-secondary">Tick rows you want off the send list.</span>
+        </div>
+        {% endif %}
       <div class="table-responsive" style="max-height:360px;">
         <table class="table table-sm">
-          <thead><tr><th>Email</th><th>Name</th><th>Status</th><th>Reason</th></tr></thead>
+          <thead><tr>{% if campaign.status != "sending" %}<th style="width:32px"></th>{% endif %}<th>Email</th><th>Name</th><th>Status</th><th>Reason</th>{% if campaign.status != "sending" %}<th></th>{% endif %}</tr></thead>
           <tbody>
             {% for r in recipients %}
             <tr>
+              {% if campaign.status != "sending" %}
+              <td><input class="form-check-input" type="checkbox" name="recipient_ids" value="{{ r.pk }}" form="recipient-remove-form"></td>
+              {% endif %}
               <td>{{ r.email }}</td>
               <td>{{ r.name }}</td>
               <td><span class="badge-status {{ r.status }}">{{ r.status }}</span></td>
               <td>{% include "campaigns/_fail_reason.html" %}</td>
+              {% if campaign.status != "sending" %}
+              <td class="text-end">
+                <button class="btn btn-sm btn-outline-danger" type="submit" form="del-recipient-{{ r.pk }}">Remove</button>
+              </td>
+              {% endif %}
             </tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
+      </form>
+      {% for r in recipients %}
+      <form id="del-recipient-{{ r.pk }}" method="post" action="{% url 'campaigns:recipients_remove' campaign.pk %}" onsubmit="return confirm('Remove {{ r.email }} from this campaign?');">
+        {% csrf_token %}
+        <input type="hidden" name="recipient_id" value="{{ r.pk }}">
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      </form>
+      {% endfor %}
       {% if recipients.has_other_pages %}
       <div class="d-flex justify-content-between align-items-center mt-3">
         <span class="small text-secondary">Page {{ recipients.number }} of {{ recipients.paginator.num_pages }} · {{ recipient_total }} rows</span>

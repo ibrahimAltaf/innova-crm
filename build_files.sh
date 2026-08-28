@@ -1,5 +1,6 @@
 #!/bin/bash
-python3 -m pip install -r requirements.txt --break-system-packages
+set -e
+python3 -m pip install -r requirements.txt
 python3 manage.py migrate --noinput
 python3 manage.py seed_templates
 python3 manage.py create_crm_user
