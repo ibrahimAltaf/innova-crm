@@ -96,49 +96,35 @@
       <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
         <h2 class="h6 mb-0">On this campaign ({{ campaign.total_recipients }})</h2>
         {% if campaign.status != "sending" %}
-        <form method="post" action="{% url 'campaigns:recipients_remove' campaign.pk %}" onsubmit="return confirm('Remove all pending emails?');">
-          {% csrf_token %}
-          <input type="hidden" name="action" value="remove_all_pending">
-          <input type="hidden" name="next" value="{% url 'campaigns:recipients' campaign.pk %}">
-          <button class="btn btn-sm btn-outline-danger" type="submit">Remove all pending</button>
-        </form>
+        <div class="d-flex gap-2 align-items-center">
+          <span class="small text-secondary" id="on-camp-count">0 selected</span>
+          <button class="btn btn-sm btn-danger" type="button" id="on-camp-delete-btn" disabled data-bs-toggle="modal" data-bs-target="#delete-on-camp-modal">
+            <i class="bi bi-trash"></i> Delete selected
+          </button>
+        </div>
         {% endif %}
       </div>
       <form method="post" action="{% url 'campaigns:recipients_remove' campaign.pk %}" id="on-campaign-remove">
         {% csrf_token %}
         <input type="hidden" name="next" value="{% url 'campaigns:recipients' campaign.pk %}">
-        {% if campaign.status != "sending" %}
-        <button class="btn btn-sm btn-outline-danger mb-2" type="submit" onclick="return confirm('Remove selected from campaign?');">Remove selected</button>
-        {% endif %}
         <div class="table-responsive" style="max-height:280px;">
-          <table class="table table-sm">
-            <thead><tr>{% if campaign.status != "sending" %}<th style="width:32px"></th>{% endif %}<th>Email</th><th>Status</th>{% if campaign.status != "sending" %}<th></th>{% endif %}</tr></thead>
+          <table class="table table-sm" id="on-camp-table">
+            <thead><tr>{% if campaign.status != "sending" %}<th style="width:32px"><input class="form-check-input" type="checkbox" id="on-camp-all"></th>{% endif %}<th>Email</th><th>Status</th></tr></thead>
             <tbody>
               {% for r in campaign_recipients %}
               <tr>
                 {% if campaign.status != "sending" %}
-                <td><input class="form-check-input" type="checkbox" name="recipient_ids" value="{{ r.pk }}"></td>
+                <td><input class="form-check-input on-camp-check" type="checkbox" name="recipient_ids" value="{{ r.pk }}"></td>
                 {% endif %}
                 <td>{{ r.email }}</td>
                 <td><span class="badge-status {{ r.status }}">{{ r.status }}</span></td>
-                {% if campaign.status != "sending" %}
-                <td class="text-end">
-                  <button class="btn btn-sm btn-outline-danger" type="submit" form="rm-{{ r.pk }}">Remove</button>
-                </td>
-                {% endif %}
               </tr>
               {% endfor %}
             </tbody>
           </table>
         </div>
       </form>
-      {% for r in campaign_recipients %}
-      <form id="rm-{{ r.pk }}" method="post" action="{% url 'campaigns:recipients_remove' campaign.pk %}" onsubmit="return confirm('Remove {{ r.email }}?');">
-        {% csrf_token %}
-        <input type="hidden" name="recipient_id" value="{{ r.pk }}">
-        <input type="hidden" name="next" value="{% url 'campaigns:recipients' campaign.pk %}">
-      </form>
-      {% endfor %}
+      {% include "campaigns/_confirm_delete_modal.html" with modal_id="delete-on-camp-modal" confirm_id="confirm-delete-on-camp" title="Remove from campaign?" message="Selected emails will be removed from this campaign." %}
     </div>
     {% endif %}
   </div>
@@ -174,5 +160,22 @@
     });
     syncFilter();
   });
+  const onCampChecks = () => [...document.querySelectorAll(".on-camp-check")];
+  function updateOnCampCount() {
+    const n = onCampChecks().filter((el) => el.checked).length;
+    const label = document.getElementById("on-camp-count");
+    if (label) label.textContent = n + " selected";
+    const btn = document.getElementById("on-camp-delete-btn");
+    if (btn) btn.disabled = n === 0;
+  }
+  document.getElementById("on-camp-all")?.addEventListener("change", (e) => {
+    onCampChecks().forEach((el) => { el.checked = e.target.checked; });
+    updateOnCampCount();
+  });
+  document.getElementById("on-camp-table")?.addEventListener("change", updateOnCampCount);
+  document.getElementById("confirm-delete-on-camp")?.addEventListener("click", () => {
+    document.getElementById("on-campaign-remove")?.submit();
+  });
+  updateOnCampCount();
 </script>
 {% endblock %}

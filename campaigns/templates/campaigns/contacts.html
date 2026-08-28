@@ -48,7 +48,12 @@
       <div class="panel p-4">
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
           <h2 class="h6 mb-0">{{ contact_count }} contacts{% if q %} matching “{{ q }}”{% endif %}</h2>
-          <span class="small text-secondary" id="selected-count">0 selected</span>
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="small text-secondary" id="selected-count">0 selected</span>
+            <button class="btn btn-danger btn-sm" type="button" id="delete-selected-btn" disabled data-bs-toggle="modal" data-bs-target="#delete-contacts-modal">
+              <i class="bi bi-trash"></i> Delete selected
+            </button>
+          </div>
         </div>
         <div class="bulk-bar mb-3">
           <label class="form-label mb-1">Send from this list</label>
@@ -67,7 +72,6 @@
             <button class="btn btn-outline-secondary btn-sm" type="button" id="pick-none">None</button>
             <button class="btn btn-outline-primary" type="submit">Add to campaign</button>
             <button class="btn btn-success" type="submit" name="send_now" value="1">Add &amp; send now</button>
-            <button class="btn btn-outline-danger" type="submit" formaction="{% url 'campaigns:contacts_bulk_delete' %}" form="bulk-form" onclick="return confirm('Remove selected contacts from your list?');">Remove selected</button>
           </div>
           <p class="form-text mb-0 mt-2">20 / 50 / 100 / 500 uses the current search. After adding, open the campaign and send in batches of <strong>20 / 100 / 500</strong> so you can watch sent vs failed live.</p>
         </div>
@@ -106,6 +110,13 @@
         {% endif %}
       </div>
     </form>
+    <form method="post" action="{% url 'campaigns:contacts_bulk_delete' %}" id="delete-contacts-form">
+      {% csrf_token %}
+      <input type="hidden" name="q" value="{{ q }}">
+      <input type="hidden" name="mode" value="selected">
+      <div id="delete-contact-ids"></div>
+    </form>
+    {% include "campaigns/_confirm_delete_modal.html" with modal_id="delete-contacts-modal" confirm_id="confirm-delete-contacts" title="Delete contacts?" message="Remove the selected contacts from your list. They will not receive future campaigns from this list." %}
     {% for c in contacts %}
     <form id="del-{{ c.pk }}" method="post" action="{% url 'campaigns:contact_delete' c.pk %}" onsubmit="return confirm('Remove this contact?');">{% csrf_token %}</form>
     {% endfor %}
@@ -120,6 +131,8 @@
     const n = checks().filter((el) => el.checked).length;
     const label = document.getElementById("selected-count");
     if (label) label.textContent = n + " selected";
+    const delBtn = document.getElementById("delete-selected-btn");
+    if (delBtn) delBtn.disabled = n === 0;
   }
   function pickVisible(n) {
     const rows = visibleChecks();
@@ -165,5 +178,18 @@
     });
   });
   updateCount();
+  document.getElementById("confirm-delete-contacts")?.addEventListener("click", () => {
+    const box = document.getElementById("delete-contact-ids");
+    if (!box) return;
+    box.innerHTML = "";
+    checks().filter((el) => el.checked).forEach((el) => {
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = "contact_ids";
+      input.value = el.value;
+      box.appendChild(input);
+    });
+    document.getElementById("delete-contacts-form")?.submit();
+  });
 </script>
 {% endblock %}
