@@ -1,6 +1,7 @@
 #!/bin/bash
-uv pip install -r requirements.txt 2>/dev/null || python3 -m pip install -r requirements.txt --user
-python3 manage.py migrate --noinput
-python3 manage.py seed_templates
-python3 manage.py create_crm_user
-python3 manage.py collectstatic --noinput --clear
+python3 -m venv /tmp/build-venv
+/tmp/build-venv/bin/pip install -r requirements.txt
+/tmp/build-venv/bin/python manage.py migrate --noinput
+/tmp/build-venv/bin/python manage.py seed_templates
+/tmp/build-venv/bin/python manage.py create_crm_user
+/tmp/build-venv/bin/python manage.py collectstatic --noinput --clear
