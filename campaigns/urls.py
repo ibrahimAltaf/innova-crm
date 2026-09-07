@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import editors, views
+from . import api, editors, views
 
 app_name = "campaigns"
 
@@ -52,4 +52,9 @@ urlpatterns = [
     path("settings/", views.settings_view, name="settings"),
     path("settings/test/", editors.settings_test, name="settings_test"),
     path("unsubscribe/<str:token>/", views.unsubscribe, name="unsubscribe"),
+    path("api/v1/health/", api.api_health, name="api_health"),
+    path("api/v1/templates/", api.api_templates, name="api_templates"),
+    path("api/v1/email/send/", api.api_send, name="api_send"),
+    path("api/v1/queue/drain/", api.api_drain, name="api_drain"),
+    path("api/v1/senders/", api.api_senders_upsert, name="api_senders"),
 ]

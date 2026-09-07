@@ -177,13 +177,18 @@ def campaign_edit(request, pk):
 
 
 def _kick_email_workers() -> bool:
-    try:
-        from campaigns.tasks import process_email_queue
+    """Start Celery if a worker exists; always drain inline on Vercel (no worker process)."""
+    if not os.getenv("VERCEL"):
+        try:
+            from campaigns.tasks import process_email_queue
 
-        process_email_queue.delay()
-        return True
-    except Exception:
-        return False
+            process_email_queue.delay()
+        except Exception:
+            pass
+    from campaigns.services.email_sender import process_due_jobs
+
+    process_due_jobs()
+    return True
 
 
 SEND_BATCH_SIZES = (20, 100, 500)

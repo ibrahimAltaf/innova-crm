@@ -127,3 +127,17 @@ class SenderPoolTests(AuthMixin, TestCase):
         dark.save(update_fields=["is_active"])
         emails = {select_sender().email, select_sender().email}
         self.assertEqual(emails, {live.email, dark.email})
+
+    def test_webhook_api_requires_token(self):
+        from django.test import override_settings
+
+        with override_settings(EMAIL_API_KEY="hook-secret"):
+            denied = self.client.get(reverse("campaigns:api_templates"))
+            self.assertEqual(denied.status_code, 401)
+            ok = self.client.get(
+                reverse("campaigns:api_templates"),
+                HTTP_AUTHORIZATION="Bearer hook-secret",
+            )
+            self.assertEqual(ok.status_code, 200)
+            self.assertTrue(ok.json()["ok"])
+            self.assertTrue(any(t["slug"] == "newsletter" for t in ok.json()["templates"]))

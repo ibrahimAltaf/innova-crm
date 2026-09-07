@@ -1,4 +1,5 @@
 import os
+import ssl
 import sys
 from datetime import timedelta
 from pathlib import Path
@@ -179,8 +180,23 @@ if os.getenv("VERCEL") and not os.getenv("SITE_URL"):
     if vercel_url:
         SITE_URL = f"https://{vercel_url}"
 
-CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL") or os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
+def _broker_url() -> str:
+    url = (os.getenv("CELERY_BROKER_URL") or os.getenv("REDIS_URL") or "").strip()
+    if url:
+        return url
+    token = (os.getenv("UPSTASH_REDIS_REST_TOKEN") or "").strip()
+    rest = (os.getenv("UPSTASH_REDIS_REST_URL") or "").strip()
+    if token and rest:
+        host = rest.replace("https://", "").replace("http://", "").split("/")[0]
+        return f"rediss://default:{token}@{host}:6379/0"
+    return "redis://127.0.0.1:6379/0"
+
+
+CELERY_BROKER_URL = _broker_url()
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
+if CELERY_BROKER_URL.startswith("rediss://"):
+    CELERY_BROKER_USE_SSL = {"ssl_cert_reqs": ssl.CERT_REQUIRED}
+    CELERY_REDIS_BACKEND_USE_SSL = {"ssl_cert_reqs": ssl.CERT_REQUIRED}
 CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "false").lower() in {"1", "true", "yes"}
 if "test" in sys.argv:
     CELERY_TASK_ALWAYS_EAGER = True
@@ -193,6 +209,7 @@ CELERY_BEAT_SCHEDULE = {
     }
 }
 EMAIL_CREDENTIALS_KEY = os.getenv("EMAIL_CREDENTIALS_KEY", "")
+EMAIL_API_KEY = os.getenv("EMAIL_API_KEY", "")
 MAIL_SEND_INTERVAL_SECONDS = float(os.getenv("MAIL_SEND_INTERVAL_SECONDS", "8"))
 MAIL_DEFAULT_DAILY_LIMIT = int(os.getenv("MAIL_DEFAULT_DAILY_LIMIT", "300"))
 MAIL_DEFAULT_HOURLY_LIMIT = int(os.getenv("MAIL_DEFAULT_HOURLY_LIMIT", "50"))
