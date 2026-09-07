@@ -30,7 +30,7 @@
   "crons": [
     {
       "path": "/api/v1/queue/drain/",
-      "schedule": "0 * * * *"
+      "schedule": "0 4 * * *"
     }
   ]
 }
