@@ -17,7 +17,7 @@
   <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
     <div>
       <h2 class="h6 mb-1">Hostinger send quota · today</h2>
-      <p class="small text-secondary mb-0">Campaign + test sends from this CRM. Premium ≈ 3000/day per mailbox.</p>
+      <p class="small text-secondary mb-0">Sum of remaining capacity across the mailbox pool. Each mailbox has its own hourly/daily cap.</p>
     </div>
     <a class="small" href="{% url 'campaigns:settings' %}">Edit limit</a>
   </div>
@@ -32,11 +32,22 @@
     <div class="progress-bar {% if quota.exhausted %}bg-danger{% elif quota.warning %}bg-warning{% endif %}" style="width: {{ quota.percent }}%"></div>
   </div>
   {% if quota.exhausted %}
-    <p class="small text-danger mb-0 mt-2">Daily limit used. Wait for the next 24h window or lower today’s sends.</p>
+    <p class="small text-danger mb-0 mt-2">Configured daily cap used. Remaining mail stays queued until capacity returns.</p>
   {% elif quota.warning %}
-    <p class="small text-warning mb-0 mt-2">Running low — keep batches small (100–200).</p>
+    <p class="small text-warning mb-0 mt-2">Running low — workers will slow or wait rather than exceed mailbox limits.</p>
   {% endif %}
 </div>
+
+{% if queue_stats %}
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-2"><div class="stat-card"><span>Queue</span><strong>{{ queue_stats.queued }}</strong></div></div>
+  <div class="col-6 col-md-2"><div class="stat-card"><span>Deferred</span><strong>{{ queue_stats.deferred }}</strong></div></div>
+  <div class="col-6 col-md-2"><div class="stat-card stat-ok"><span>Job sent</span><strong>{{ queue_stats.sent }}</strong></div></div>
+  <div class="col-6 col-md-2"><div class="stat-card stat-bad"><span>Job failed</span><strong>{{ queue_stats.failed }}</strong></div></div>
+  <div class="col-6 col-md-2"><div class="stat-card"><span>Bounced</span><strong>{{ queue_stats.bounced }}</strong></div></div>
+  <div class="col-6 col-md-2"><div class="stat-card"><span>Suppressed</span><strong>{{ queue_stats.suppressed }}</strong></div></div>
+</div>
+{% endif %}
 
 <div class="row g-3 mb-4">
   <div class="col-md-3"><div class="stat-card"><span>Open pipeline</span><strong>{{ stats.open }}</strong><div class="small text-secondary mt-1">{{ stats.pipeline }} value</div></div></div>

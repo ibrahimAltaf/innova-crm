@@ -12,3 +12,4 @@ venv/
 .vercel
 .env*.local
 .env*
+emailsbukl.json

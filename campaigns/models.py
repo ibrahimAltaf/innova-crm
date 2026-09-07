@@ -1,6 +1,8 @@
 import secrets
 
 from django.db import models
+from django.db.models import Q
+from django.utils import timezone
 
 
 class EmailTemplate(models.Model):
@@ -72,7 +74,7 @@ class Campaign(models.Model):
 
     @property
     def pending_count(self):
-        return self.recipients.filter(status=Recipient.Status.PENDING).count()
+        return self.recipients.filter(status__in=Recipient.OPEN_STATUSES).count()
 
     @property
     def progress_percent(self):
@@ -101,9 +103,14 @@ class Campaign(models.Model):
 class Recipient(models.Model):
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
+        QUEUED = "queued", "Queued"
+        DEFERRED = "deferred", "Deferred"
         SENT = "sent", "Sent"
         FAILED = "failed", "Failed"
         SKIPPED = "skipped", "Skipped"
+        BOUNCED = "bounced", "Bounced"
+
+    OPEN_STATUSES = (Status.PENDING, Status.QUEUED, Status.DEFERRED)
 
     campaign = models.ForeignKey(Campaign, on_delete=models.CASCADE, related_name="recipients")
     email = models.EmailField()
@@ -351,3 +358,181 @@ class AppSettings(models.Model):
             company_name=dj.DEFAULT_FROM_NAME or "Your Company",
             website_url="https://innovafior.online",
         )
+
+
+class SenderAccount(models.Model):
+    """One Hostinger (or other) mailbox in the sending pool."""
+
+    email = models.EmailField(unique=True)
+    smtp_host = models.CharField(max_length=200, default="smtp.hostinger.com")
+    smtp_port = models.PositiveIntegerField(default=465)
+    username = models.CharField(max_length=200, blank=True)
+    password_encrypted = models.TextField(blank=True)
+    credential_env_key = models.CharField(
+        max_length=120,
+        blank=True,
+        help_text="Optional env var name holding the SMTP password instead of the encrypted field.",
+    )
+    smtp_use_tls = models.BooleanField(default=False)
+    smtp_use_ssl = models.BooleanField(default=True)
+    daily_limit = models.PositiveIntegerField(default=300)
+    hourly_limit = models.PositiveIntegerField(default=50)
+    min_interval_seconds = models.PositiveIntegerField(
+        default=12,
+        help_text="Minimum pause after this mailbox sends, so Hostinger burst limits are respected.",
+    )
+    sent_today = models.PositiveIntegerField(default=0)
+    sent_this_hour = models.PositiveIntegerField(default=0)
+    day_key = models.DateField(null=True, blank=True)
+    hour_key = models.PositiveSmallIntegerField(null=True, blank=True)
+    last_sent_at = models.DateTimeField(null=True, blank=True)
+    cooldown_until = models.DateTimeField(null=True, blank=True)
+    failure_count = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    last_smtp_error = models.CharField(max_length=400, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["email"]
+
+    def __str__(self):
+        return self.email
+
+    def save(self, *args, **kwargs):
+        self.email = (self.email or "").strip().lower()
+        if not self.username:
+            self.username = self.email
+        super().save(*args, **kwargs)
+
+    def remaining_today(self) -> int:
+        return max(0, int(self.daily_limit) - int(self.sent_today))
+
+    def remaining_hour(self) -> int:
+        return max(0, int(self.hourly_limit) - int(self.sent_this_hour))
+
+    def in_cooldown(self, now=None) -> bool:
+        now = now or timezone.now()
+        return bool(self.cooldown_until and self.cooldown_until > now)
+
+    def smtp_kwargs(self) -> dict:
+        from .services.credentials import sender_password
+
+        use_ssl = bool(self.smtp_use_ssl)
+        use_tls = bool(self.smtp_use_tls) and not use_ssl
+        if not use_ssl and not use_tls:
+            use_ssl = int(self.smtp_port) == 465
+            use_tls = not use_ssl
+        return {
+            "host": (self.smtp_host or "smtp.hostinger.com").strip(),
+            "port": int(self.smtp_port or 465),
+            "username": (self.username or self.email).strip(),
+            "password": sender_password(self),
+            "use_tls": use_tls,
+            "use_ssl": use_ssl,
+            "timeout": 30,
+            "fail_silently": False,
+        }
+
+
+class SuppressionEntry(models.Model):
+    class Reason(models.TextChoices):
+        BOUNCE = "bounce", "Hard bounce"
+        UNSUBSCRIBE = "unsubscribe", "Unsubscribe"
+        COMPLAINT = "complaint", "Complaint"
+        MANUAL = "manual", "Manually blocked"
+
+    email = models.EmailField(unique=True)
+    reason = models.CharField(max_length=20, choices=Reason.choices)
+    source = models.CharField(max_length=120, blank=True)
+    notes = models.CharField(max_length=400, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name_plural = "Suppression entries"
+
+    def __str__(self):
+        return f"{self.email} · {self.reason}"
+
+    def save(self, *args, **kwargs):
+        self.email = (self.email or "").strip().lower()
+        super().save(*args, **kwargs)
+
+
+class EmailJob(models.Model):
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        RESERVED = "reserved", "Reserved"
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+        DEFERRED = "deferred", "Deferred"
+        BOUNCED = "bounced", "Hard bounced"
+        SUPPRESSED = "suppressed", "Suppressed"
+
+    campaign = models.ForeignKey(Campaign, on_delete=models.CASCADE, related_name="email_jobs")
+    recipient = models.OneToOneField(Recipient, on_delete=models.CASCADE, related_name="email_job")
+    sender = models.ForeignKey(
+        SenderAccount, null=True, blank=True, on_delete=models.SET_NULL, related_name="email_jobs"
+    )
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.QUEUED)
+    idempotency_key = models.CharField(max_length=80, unique=True)
+    attempt_count = models.PositiveIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(default=timezone.now)
+    last_error = models.CharField(max_length=400, blank=True)
+    smtp_code = models.CharField(max_length=20, blank=True)
+    reserved_at = models.DateTimeField(null=True, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["id"]
+        indexes = [
+            models.Index(fields=["status", "next_attempt_at"]),
+            models.Index(fields=["campaign", "status"]),
+        ]
+
+    def __str__(self):
+        return self.idempotency_key
+
+
+class EmailDeliveryAttempt(models.Model):
+    class Outcome(models.TextChoices):
+        SENT = "sent", "Sent"
+        TEMPORARY = "temporary", "Temporary 4xx / retry"
+        PERMANENT = "permanent", "Permanent 5xx"
+        CONNECTION = "connection", "Connection / timeout"
+        SUPPRESSED = "suppressed", "Suppressed"
+        SKIPPED = "skipped", "Skipped"
+
+    job = models.ForeignKey(EmailJob, on_delete=models.CASCADE, related_name="attempts")
+    sender = models.ForeignKey(
+        SenderAccount, null=True, blank=True, on_delete=models.SET_NULL, related_name="attempts"
+    )
+    outcome = models.CharField(max_length=20, choices=Outcome.choices)
+    smtp_code = models.CharField(max_length=20, blank=True)
+    smtp_response = models.CharField(max_length=400, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.job_id} · {self.outcome}"
+
+
+class UnsubscribeToken(models.Model):
+    """Stable one-click token; Recipient.unsubscribe_token remains the campaign-row equivalent."""
+
+    recipient = models.OneToOneField(Recipient, on_delete=models.CASCADE, related_name="unsub_row")
+    token = models.CharField(max_length=64, unique=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.token
+
+
+def open_recipient_q():
+    return Q(status__in=Recipient.OPEN_STATUSES)

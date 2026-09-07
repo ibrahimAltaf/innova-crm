@@ -43,7 +43,7 @@
 {% if campaign.status == "completed" %}
   <div class="alert alert-info">Sent {{ campaign.sent_count }} · failed {{ campaign.failed_count }} · skipped {{ campaign.skipped_count }}. Use <strong>Send 20 / 100 / 500</strong> again, or retry only the failed list.</div>
 {% elif campaign.pending_count %}
-  <div class="alert alert-warning" id="batch-waiting">{{ campaign.pending_count }} still waiting. Click <strong>Send 20 / 100 / 500</strong>. Emails go in small bursts with pauses so Hostinger does not rate-limit you. Extra wait time is normal.</div>
+  <div class="alert alert-warning" id="batch-waiting">{{ campaign.pending_count }} still waiting. Click <strong>Send 20 / 100 / 500</strong> to enqueue. Celery workers send one-by-one through the mailbox pool so Hostinger limits are not exceeded. Slow sending is expected.</div>
 {% endif %}
 
 <div class="row g-3 mb-4">
@@ -177,7 +177,6 @@
   const progressUrl = "{% url 'campaigns:progress' campaign.pk %}";
   const live = document.getElementById("send-live");
   const errBox = document.getElementById("last-error-box");
-  const BURSTS = [12, 18, 15, 20, 10];
   let sendInFlight = false;
 
   function sleep(ms) {
@@ -222,46 +221,26 @@
       const token = form.querySelector("[name=csrfmiddlewaretoken]").value;
       form.querySelectorAll("button").forEach((b) => { b.disabled = true; });
       const target = parseInt(btn.dataset.batch, 10) || 20;
-      let left = target;
-      let done = 0;
-      let i = 0;
       sendInFlight = true;
       poll();
       try {
-        while (left > 0) {
-          const burst = Math.min(left, BURSTS[i % BURSTS.length]);
-          i += 1;
-          if (live) {
-            live.textContent = "Sending " + target + "… " + done + " of " + target + " (Hostinger-safe pace, please wait)";
-          }
-          const body = new FormData();
-          body.append("csrfmiddlewaretoken", token);
-          body.append("batch", String(burst));
-          const res = await fetch(sendUrl, {
-            method: "POST",
-            body,
-            headers: { "X-Requested-With": "fetch", "Accept": "application/json" },
-          });
-          const data = await res.json();
-          applyProgress(data);
-          if (!data.ok) {
-            if (live) live.textContent = data.message || "Send stopped.";
-            break;
-          }
-          const got = data.processed || 0;
-          if (!got) break;
-          done += got;
-          left -= got;
-          if (data.pending === 0) break;
-          if (left > 0) {
-            if (live) {
-              live.textContent = "Sending " + target + "… " + done + " of " + target + ". Short Hostinger pause…";
-            }
-            await sleep(25000 + Math.floor(Math.random() * 10000));
-          }
-        }
         if (live) {
-          live.textContent = "Finished " + done + " of " + target + ". Refreshing…";
+          live.textContent = "Queueing " + target + " emails into the mailbox pool…";
+        }
+        const body = new FormData();
+        body.append("csrfmiddlewaretoken", token);
+        body.append("batch", String(target));
+        const res = await fetch(sendUrl, {
+          method: "POST",
+          body,
+          headers: { "X-Requested-With": "fetch", "Accept": "application/json" },
+        });
+        const data = await res.json();
+        applyProgress(data);
+        if (live) live.textContent = data.message || "Queued. Workers are sending gradually.";
+        for (let n = 0; n < 120 && sendInFlight; n += 1) {
+          await sleep(2000);
+          await poll();
         }
       } catch (e) {
         if (live) live.textContent = "Send request finished. Refreshing status…";

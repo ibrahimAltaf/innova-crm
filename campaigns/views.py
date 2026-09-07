@@ -7,6 +7,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.clickjacking import xframe_options_exempt
+from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 import csv
 import json
@@ -22,6 +23,7 @@ from .forms import (
     LeadImportForm,
     NoteForm,
     RecipientUploadForm,
+    SenderAccountForm,
     SettingsForm,
     TemplateForm,
     TestEmailForm,
@@ -37,7 +39,22 @@ from .mailer import (
     smtp_kwargs,
     start_campaign_async,
 )
-from .models import Activity, AppSettings, Campaign, Contact, EmailTemplate, Lead, Recipient, Unsubscribe
+from .models import (
+    Activity,
+    AppSettings,
+    Campaign,
+    Contact,
+    EmailDeliveryAttempt,
+    EmailJob,
+    EmailTemplate,
+    Lead,
+    Recipient,
+    SenderAccount,
+    SuppressionEntry,
+    Unsubscribe,
+)
+from .services.queue import enqueue_campaign, enqueue_failed_retry
+from .services.sender_pool import pool_snapshot
 from .utils import ensure_templates
 from .auth_views import CrmLoginView, CrmLogoutView
 
@@ -48,7 +65,57 @@ logout_view = CrmLogoutView.as_view()
 def dashboard(request):
     ensure_templates()
     payload = dashboard_payload()
+    payload["pool"] = pool_snapshot()
+    payload["queue_stats"] = {
+        "queued": EmailJob.objects.filter(status=EmailJob.Status.QUEUED).count(),
+        "deferred": EmailJob.objects.filter(status=EmailJob.Status.DEFERRED).count(),
+        "sent": EmailJob.objects.filter(status=EmailJob.Status.SENT).count(),
+        "failed": EmailJob.objects.filter(status=EmailJob.Status.FAILED).count(),
+        "bounced": EmailJob.objects.filter(status=EmailJob.Status.BOUNCED).count(),
+        "suppressed": EmailJob.objects.filter(status=EmailJob.Status.SUPPRESSED).count(),
+    }
     return render(request, "campaigns/dashboard.html", payload)
+
+
+def sender_pool(request):
+    from .services.credentials import set_sender_password
+
+    form = SenderAccountForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        sender = form.save(commit=False)
+        password = form.cleaned_data.get("password") or ""
+        if password:
+            set_sender_password(sender, password)
+        sender.save()
+        messages.success(request, f"Saved mailbox {sender.email}. Password is stored encrypted.")
+        return redirect("campaigns:sender_pool")
+    jobs = {
+        "queued": EmailJob.objects.filter(status=EmailJob.Status.QUEUED).count(),
+        "reserved": EmailJob.objects.filter(status=EmailJob.Status.RESERVED).count(),
+        "deferred": EmailJob.objects.filter(status=EmailJob.Status.DEFERRED).count(),
+        "sent": EmailJob.objects.filter(status=EmailJob.Status.SENT).count(),
+        "failed": EmailJob.objects.filter(status=EmailJob.Status.FAILED).count(),
+        "bounced": EmailJob.objects.filter(status=EmailJob.Status.BOUNCED).count(),
+        "suppressed": EmailJob.objects.filter(status=EmailJob.Status.SUPPRESSED).count(),
+    }
+    attempts = EmailDeliveryAttempt.objects.count()
+    failed_attempts = EmailDeliveryAttempt.objects.exclude(outcome=EmailDeliveryAttempt.Outcome.SENT).count()
+    unsubscribed = SuppressionEntry.objects.filter(reason=SuppressionEntry.Reason.UNSUBSCRIBE).count()
+    return render(
+        request,
+        "campaigns/sender_pool.html",
+        {
+            "form": form,
+            "pool": pool_snapshot(),
+            "jobs": jobs,
+            "attempts": attempts,
+            "failure_rate": int((failed_attempts / attempts) * 100) if attempts else 0,
+            "unsubscribed": unsubscribed,
+            "complaints": SuppressionEntry.objects.filter(reason=SuppressionEntry.Reason.COMPLAINT).count(),
+            "bounces": SuppressionEntry.objects.filter(reason=SuppressionEntry.Reason.BOUNCE).count(),
+            "manual_blocks": SuppressionEntry.objects.filter(reason=SuppressionEntry.Reason.MANUAL).count(),
+        },
+    )
 
 
 def template_gallery(request):
@@ -107,6 +174,16 @@ def campaign_edit(request, pk):
             "title": "Edit campaign",
         },
     )
+
+
+def _kick_email_workers() -> bool:
+    try:
+        from campaigns.tasks import process_email_queue
+
+        process_email_queue.delay()
+        return True
+    except Exception:
+        return False
 
 
 SEND_BATCH_SIZES = (20, 100, 500)
@@ -513,35 +590,29 @@ def campaign_send(request, pk):
     if campaign.total_recipients == 0:
         return reply(False, "Add recipients before sending.")
     app = AppSettings.load()
-    mail = smtp_kwargs(app)
-    if not (mail.get("host") and mail.get("username") and mail.get("password")):
-        return reply(False, "Configure SMTP in Settings first, or set EMAIL_HOST_PASSWORD on Vercel.")
+    from .services.sender_pool import ensure_default_sender
+
+    ensure_default_sender()
+    if not SenderAccount.objects.filter(is_active=True).exists():
+        mail = smtp_kwargs(app)
+        if not (mail.get("host") and mail.get("username") and mail.get("password")):
+            return reply(False, "Add at least one Sender mailbox (Sender pool) or configure SMTP in Settings.")
     if campaign.status == Campaign.Status.SENDING and campaign.pk in _RUNNING:
         return reply(True, "Already sending.")
-    quota = send_quota(app)
-    if quota["exhausted"]:
-        return reply(
-            False,
-            f"Daily send limit reached ({quota['limit']}/day). Wait until tomorrow or raise the limit in Brand & SMTP.",
-        )
     pending = prepare_campaign_for_send(campaign)
     if pending == 0:
-        return reply(False, "No recipients left to send (unsubscribed).")
-    burst = min(batch, pending, HOSTINGER_MAX_BURST, max(0, quota["remaining"]))
-    if burst <= 0:
-        return reply(False, f"Only {quota['remaining']} emails left today (limit {quota['limit']}).")
-    campaign.status = Campaign.Status.QUEUED
-    campaign.save(update_fields=["status", "updated_at"])
-    processed = run_campaign(campaign.pk, limit=burst)
+        return reply(False, "No recipients left to send (unsubscribed or suppressed).")
+    to_queue = min(batch, pending)
+    queued = enqueue_campaign(campaign.pk, limit=to_queue)
+    kicked = _kick_email_workers()
     campaign.refresh_from_db()
     left = campaign.pending_count
-    if left:
-        message = (
-            f"Sent a Hostinger-safe burst of {processed}. "
-            f"Total sent {campaign.sent_count}, failed {campaign.failed_count}. {left} still waiting."
-        )
-    else:
-        message = f"Done. Sent {campaign.sent_count}, failed {campaign.failed_count}."
+    message = (
+        f"Queued {queued} emails. The mailbox pool will send them gradually "
+        f"(least-used healthy mailbox, hourly/daily caps, pacing). {left} still waiting."
+    )
+    if not kicked:
+        message += " Start Celery+Redis, or run: python manage.py process_email_queue"
 
     def reply_done(ok, message):
         campaign.refresh_from_db()
@@ -557,8 +628,10 @@ def campaign_send(request, pk):
             "delivery_rate": campaign.delivery_rate,
             "last_error": campaign.last_error,
             "batch": batch,
-            "processed": processed,
-            "continue": bool(left and processed),
+            "processed": queued,
+            "continue": False,
+            "queued": queued,
+            "worker_kicked": kicked,
         }
         if _wants_json(request):
             return JsonResponse(payload, status=200 if ok else 400)
@@ -836,12 +909,12 @@ def template_edit(request, pk):
 
 
 @login_not_required
+@csrf_exempt
 def unsubscribe(request, token):
+    from .services.suppression import apply_unsubscribe
+
     recipient = get_object_or_404(Recipient, unsubscribe_token=token)
-    Unsubscribe.objects.get_or_create(email=recipient.email.lower())
-    Recipient.objects.filter(email__iexact=recipient.email, status=Recipient.Status.PENDING).update(
-        status=Recipient.Status.SKIPPED, error_message="Unsubscribed"
-    )
+    apply_unsubscribe(recipient, source="one-click")
     return render(request, "campaigns/unsubscribe.html", {"email": recipient.email})
 
 
@@ -851,25 +924,22 @@ def campaign_retry_failed(request, pk):
     if campaign.status == Campaign.Status.SENDING:
         messages.info(request, "Already sending.")
         return redirect("campaigns:detail", pk=pk)
-    failed = campaign.recipients.filter(status=Recipient.Status.FAILED)
+    failed = campaign.recipients.filter(
+        status__in={Recipient.Status.FAILED, Recipient.Status.DEFERRED}
+    )
     count = failed.count()
     if not count:
         messages.info(request, "No failed emails to retry.")
         return redirect("campaigns:detail", pk=pk)
-    failed.update(status=Recipient.Status.PENDING, error_message="")
-    campaign.failed_count = 0
-    campaign.last_error = ""
-    campaign.status = Campaign.Status.QUEUED
-    campaign.save(update_fields=["failed_count", "last_error", "status", "updated_at"])
     batch = _parse_send_batch(request)
-    limit = min(batch, count, HOSTINGER_MAX_BURST)
-    run_campaign(campaign.pk, limit=limit)
+    queued = enqueue_failed_retry(campaign.pk, limit=min(batch, count))
+    _kick_email_workers()
     campaign.refresh_from_db()
     left = campaign.pending_count
     if left:
         messages.success(
             request,
-            f"Retried a batch of {limit}. Sent {campaign.sent_count}, failed {campaign.failed_count}. {left} still waiting.",
+            f"Re-queued {queued} failed addresses. Workers will retry with the mailbox pool. {left} waiting.",
         )
     else:
         messages.success(request, f"Retried {count}. Sent {campaign.sent_count}, failed {campaign.failed_count}.")

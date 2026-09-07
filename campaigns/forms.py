@@ -2,7 +2,7 @@ from django import forms
 from django.utils.text import slugify
 
 from .catalog import DEFAULT_TEMPLATES
-from .models import AppSettings, Campaign, Contact, EmailTemplate, Lead
+from .models import AppSettings, Campaign, Contact, EmailTemplate, Lead, SenderAccount
 
 
 class CampaignForm(forms.ModelForm):
@@ -261,4 +261,41 @@ class SettingsForm(forms.ModelForm):
             "delay_seconds": forms.NumberInput(attrs={"class": "form-control", "step": "0.1", "min": "0.05"}),
             "batch_pause_every": forms.NumberInput(attrs={"class": "form-control", "min": "1"}),
             "batch_pause_seconds": forms.NumberInput(attrs={"class": "form-control", "step": "0.5", "min": "0"}),
+        }
+
+
+class SenderAccountForm(forms.ModelForm):
+    password = forms.CharField(
+        required=False,
+        widget=forms.PasswordInput(attrs={"class": "form-control", "autocomplete": "new-password"}),
+        help_text="Stored encrypted. Leave blank when using an env-var credential key.",
+    )
+
+    class Meta:
+        model = SenderAccount
+        fields = [
+            "email",
+            "smtp_host",
+            "smtp_port",
+            "username",
+            "credential_env_key",
+            "smtp_use_ssl",
+            "smtp_use_tls",
+            "daily_limit",
+            "hourly_limit",
+            "min_interval_seconds",
+            "is_active",
+        ]
+        widgets = {
+            "email": forms.EmailInput(attrs={"class": "form-control"}),
+            "smtp_host": forms.TextInput(attrs={"class": "form-control"}),
+            "smtp_port": forms.NumberInput(attrs={"class": "form-control"}),
+            "username": forms.TextInput(attrs={"class": "form-control"}),
+            "credential_env_key": forms.TextInput(attrs={"class": "form-control", "placeholder": "SMTP_PASSWORD_INFO"}),
+            "smtp_use_ssl": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+            "smtp_use_tls": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+            "daily_limit": forms.NumberInput(attrs={"class": "form-control", "min": "1"}),
+            "hourly_limit": forms.NumberInput(attrs={"class": "form-control", "min": "1"}),
+            "min_interval_seconds": forms.NumberInput(attrs={"class": "form-control", "min": "1"}),
+            "is_active": forms.CheckboxInput(attrs={"class": "form-check-input"}),
         }

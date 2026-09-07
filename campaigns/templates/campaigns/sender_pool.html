@@ -1,0 +1,84 @@
+{% extends "campaigns/base.html" %}
+{% block title %}Sender pool · Innova CRM{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <div>
+    <h1 class="page-title h3 mb-1">Sender pool</h1>
+    <p class="page-kicker mb-0">Legitimate Hostinger mailboxes, least-used first. Limits are enforced — nothing here bypasses the provider.</p>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-lg-2"><div class="stat-card"><span>Queued</span><strong>{{ jobs.queued }}</strong></div></div>
+  <div class="col-6 col-lg-2"><div class="stat-card"><span>Deferred</span><strong>{{ jobs.deferred }}</strong></div></div>
+  <div class="col-6 col-lg-2"><div class="stat-card stat-ok"><span>Sent</span><strong>{{ jobs.sent }}</strong></div></div>
+  <div class="col-6 col-lg-2"><div class="stat-card stat-bad"><span>Failed</span><strong>{{ jobs.failed }}</strong></div></div>
+  <div class="col-6 col-lg-2"><div class="stat-card"><span>Hard bounced</span><strong>{{ jobs.bounced }}</strong></div></div>
+  <div class="col-6 col-lg-2"><div class="stat-card"><span>Suppressed</span><strong>{{ jobs.suppressed }}</strong></div></div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-3"><div class="stat-card"><span>Pool remaining today</span><strong>{{ pool.remaining_today }}</strong></div></div>
+  <div class="col-md-3"><div class="stat-card"><span>Active mailboxes</span><strong>{{ pool.active }}</strong></div></div>
+  <div class="col-md-3"><div class="stat-card"><span>Failure rate</span><strong>{{ failure_rate }}%</strong></div></div>
+  <div class="col-md-3"><div class="stat-card"><span>Unsubscribed</span><strong>{{ unsubscribed }}</strong><div class="small text-secondary mt-1">{{ bounces }} bounces · {{ complaints }} complaints · {{ manual_blocks }} manual</div></div></div>
+</div>
+
+<div class="panel p-4 mb-4">
+  <h2 class="h6 mb-3">Mailboxes</h2>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle">
+      <thead>
+        <tr>
+          <th>Mailbox</th>
+          <th>Today</th>
+          <th>This hour</th>
+          <th>Remaining</th>
+          <th>Cooldown</th>
+          <th>Last SMTP</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in pool.senders %}
+        <tr>
+          <td>
+            {{ s.email }}
+            {% if not s.is_active %}<span class="badge-status failed">inactive</span>{% endif %}
+          </td>
+          <td>{{ s.sent_today }} / {{ s.daily_limit }}</td>
+          <td>{{ s.sent_this_hour }} / {{ s.hourly_limit }}</td>
+          <td>{{ s.remaining_today }} day · {{ s.remaining_hour }} hour</td>
+          <td>{% if s.in_cooldown %}until {{ s.cooldown_until }}{% else %}—{% endif %}</td>
+          <td class="small text-secondary">{{ s.last_smtp_error|default:"—" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6">No mailboxes yet. Add your 10 Hostinger accounts below. Defaults: 300/day and 50/hour each (≈ 3,000/day across 10 boxes).</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="panel p-4 mb-4">
+  <h2 class="h6 mb-3">Add mailbox</h2>
+  <form method="post" class="row g-3">
+    {% csrf_token %}
+    <div class="col-md-4"><label class="form-label">Email</label>{{ form.email }}</div>
+    <div class="col-md-4"><label class="form-label">Password</label>{{ form.password }}</div>
+    <div class="col-md-4"><label class="form-label">Or env var name</label>{{ form.credential_env_key }}</div>
+    <div class="col-md-4"><label class="form-label">SMTP host</label>{{ form.smtp_host }}</div>
+    <div class="col-md-2"><label class="form-label">Port</label>{{ form.smtp_port }}</div>
+    <div class="col-md-3"><label class="form-label">Username</label>{{ form.username }}</div>
+    <div class="col-md-3 d-flex align-items-end gap-3 pb-2">
+      <label class="form-check">{{ form.smtp_use_ssl }} SSL</label>
+      <label class="form-check">{{ form.smtp_use_tls }} TLS</label>
+      <label class="form-check">{{ form.is_active }} Active</label>
+    </div>
+    <div class="col-md-3"><label class="form-label">Daily limit</label>{{ form.daily_limit }}</div>
+    <div class="col-md-3"><label class="form-label">Hourly limit</label>{{ form.hourly_limit }}</div>
+    <div class="col-md-3"><label class="form-label">Min seconds between sends</label>{{ form.min_interval_seconds }}</div>
+    <div class="col-md-3 d-flex align-items-end"><button class="btn btn-primary" type="submit">Save mailbox</button></div>
+  </form>
+  <p class="small text-secondary mt-3 mb-0">DNS (SPF, DKIM, DMARC) must be set on the domain at Hostinger. This app cannot place mail in the inbox by itself.</p>
+</div>
+{% endblock %}

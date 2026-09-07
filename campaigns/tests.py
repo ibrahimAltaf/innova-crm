@@ -4,7 +4,7 @@ from django.urls import reverse
 
 from campaigns.catalog import DEFAULT_TEMPLATES
 from campaigns.mailer import render_email_html
-from campaigns.models import AppSettings, Campaign, EmailTemplate, Recipient
+from campaigns.models import AppSettings, Campaign, EmailTemplate, Recipient, SenderAccount
 from campaigns.utils import ensure_templates
 
 
@@ -273,10 +273,20 @@ class SmtpRecoveryTests(AuthMixin, TestCase):
             heading="Hi",
             body="Body",
         )
+        SenderAccount.objects.create(
+            email="pool@example.com",
+            smtp_host="smtp.hostinger.com",
+            smtp_port=465,
+            username="pool@example.com",
+            daily_limit=1000,
+            hourly_limit=200,
+            min_interval_seconds=0,
+            is_active=True,
+        )
         bad = Recipient.objects.create(campaign=campaign, email="gone@nope.invalid", name="Gone")
         ok = Recipient.objects.create(campaign=campaign, email="ok@client.com", name="Ok")
 
-        def fake_send(_campaign, recipient, _app, _connection):
+        def fake_send(_campaign, recipient, _app, _connection, **_kwargs):
             if recipient.email.startswith("gone@"):
                 raise RuntimeError("(550, '5.1.1 User unknown: gone@nope.invalid')")
             recipient.status = Recipient.Status.SENT
@@ -286,15 +296,15 @@ class SmtpRecoveryTests(AuthMixin, TestCase):
             _campaign.sent_count += 1
             _campaign.save(update_fields=["sent_count", "updated_at"])
 
-        with patch("campaigns.mailer._open_smtp", return_value=MagicMock()), patch(
-            "campaigns.mailer.send_one", side_effect=fake_send
-        ), patch("campaigns.mailer.time.sleep"):
+        with patch("campaigns.services.email_sender._open_sender_smtp", return_value=MagicMock()), patch(
+            "campaigns.services.email_sender.send_one", side_effect=fake_send
+        ), patch("campaigns.services.email_sender.time.sleep"), patch("campaigns.mailer.time.sleep"):
             run_campaign(campaign.pk)
 
         bad.refresh_from_db()
         ok.refresh_from_db()
         campaign.refresh_from_db()
-        self.assertEqual(bad.status, Recipient.Status.FAILED)
+        self.assertEqual(bad.status, Recipient.Status.BOUNCED)
         self.assertIn("not available", bad.error_message.lower())
         self.assertIn("550", bad.fail_detail)
         self.assertEqual(ok.status, Recipient.Status.SENT)
@@ -366,8 +376,7 @@ class PipelineTests(AuthMixin, TestCase):
         self.assertContains(page, "Send 20")
         self.assertContains(page, "Send 100")
         self.assertContains(page, "Send 500")
-        with patch("campaigns.views.run_campaign") as run:
-            run.return_value = 3
+        with patch("campaigns.views._kick_email_workers", return_value=True):
             response = self.client.post(
                 reverse("campaigns:send", args=[campaign.pk]),
                 {"batch": "100"},
@@ -378,7 +387,7 @@ class PipelineTests(AuthMixin, TestCase):
         data = response.json()
         self.assertTrue(data["ok"])
         self.assertEqual(data["batch"], 100)
-        run.assert_called_once_with(campaign.pk, limit=3)
+        self.assertEqual(data["queued"], 3)
 
     def test_hostinger_rate_limit_retries_same_address(self):
         from unittest.mock import MagicMock, patch
@@ -393,10 +402,20 @@ class PipelineTests(AuthMixin, TestCase):
         ensure_templates()
         tpl = EmailTemplate.objects.get(slug="newsletter")
         campaign = Campaign.objects.create(name="Rate", template=tpl, subject="Hi", heading="Hi", body="Body")
+        SenderAccount.objects.create(
+            email="pool@example.com",
+            smtp_host="smtp.hostinger.com",
+            smtp_port=465,
+            username="pool@example.com",
+            daily_limit=1000,
+            hourly_limit=200,
+            min_interval_seconds=0,
+            is_active=True,
+        )
         row = Recipient.objects.create(campaign=campaign, email="ok@client.com", name="Ok")
         calls = {"n": 0}
 
-        def fake_send(_campaign, recipient, _app, _connection):
+        def fake_send(_campaign, recipient, _app, _connection, **_kwargs):
             calls["n"] += 1
             if calls["n"] == 1:
                 raise RuntimeError('451 4.7.1 Ratelimit "hostinger_out_ratelimit" exceeded')
@@ -407,9 +426,9 @@ class PipelineTests(AuthMixin, TestCase):
             _campaign.sent_count += 1
             _campaign.save(update_fields=["sent_count", "updated_at"])
 
-        with patch("campaigns.mailer._open_smtp", return_value=MagicMock()), patch(
-            "campaigns.mailer.send_one", side_effect=fake_send
-        ), patch("campaigns.mailer.time.sleep"):
+        with patch("campaigns.services.email_sender._open_sender_smtp", return_value=MagicMock()), patch(
+            "campaigns.services.email_sender.send_one", side_effect=fake_send
+        ), patch("campaigns.services.email_sender.time.sleep"), patch("campaigns.mailer.time.sleep"):
             processed = run_campaign(campaign.pk)
 
         row.refresh_from_db()

@@ -16,7 +16,17 @@ def send_quota(app: AppSettings | None = None) -> dict:
     sent_today = SendLog.objects.filter(created_at__gte=start).count()
     limit = max(1, int(app.daily_send_limit or 3000))
     remaining = max(0, limit - sent_today)
-    percent = min(100, int((sent_today / limit) * 100))
+    try:
+        from campaigns.services.sender_pool import pool_snapshot
+
+        snap = pool_snapshot()
+        if snap["active"]:
+            limit = sum(int(row["daily_limit"]) for row in snap["senders"] if row["is_active"]) or limit
+            remaining = int(snap["remaining_today"])
+            sent_today = max(0, limit - remaining)
+    except Exception:
+        pass
+    percent = min(100, int((sent_today / limit) * 100)) if limit else 0
     return {
         "sent_today": sent_today,
         "limit": limit,

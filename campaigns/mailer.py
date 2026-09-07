@@ -280,17 +280,24 @@ def preview_sample_html(template, app: AppSettings | None = None, campaign: Camp
     return render_email_html(campaign, recipient, "#", app)
 
 
-def build_message(campaign: Campaign, recipient: Recipient, app: AppSettings, connection) -> EmailMultiAlternatives:
+def build_message(
+    campaign: Campaign,
+    recipient: Recipient,
+    app: AppSettings,
+    connection,
+    sender=None,
+) -> EmailMultiAlternatives:
     unsub_path = reverse("campaigns:unsubscribe", args=[recipient.unsubscribe_token])
     unsubscribe_url = f"{dj_settings.SITE_URL}{unsub_path}"
     html = render_email_html(campaign, recipient, unsubscribe_url, app, embed_logo=True)
     text = _plain_from_html(html)
     text += f"\n\nUnsubscribe: {unsubscribe_url}\n{app.company_name}\n{app.company_address}\n"
 
-    from_email = formataddr((app.from_name or dj_settings.DEFAULT_FROM_NAME, app.from_email or dj_settings.DEFAULT_FROM_EMAIL))
-    reply_addr = (app.reply_to or app.from_email or dj_settings.REPLY_TO_EMAIL or dj_settings.DEFAULT_FROM_EMAIL).strip()
+    mailbox = (getattr(sender, "email", "") or app.from_email or dj_settings.DEFAULT_FROM_EMAIL).strip()
+    from_email = formataddr((app.from_name or dj_settings.DEFAULT_FROM_NAME, mailbox))
+    reply_addr = (app.reply_to or app.from_email or dj_settings.REPLY_TO_EMAIL or mailbox).strip()
     reply_to = [reply_addr] if reply_addr else None
-    from_domain = (app.from_email or dj_settings.DEFAULT_FROM_EMAIL or "localhost").split("@")[-1]
+    from_domain = (mailbox or "localhost").split("@")[-1]
 
     msg = EmailMultiAlternatives(
         subject=campaign.subject,
@@ -388,7 +395,9 @@ def smtp_kwargs(app: AppSettings) -> dict:
     }
 
 
-def send_one(campaign: Campaign, recipient: Recipient, app: AppSettings, connection) -> None:
+def send_one(campaign: Campaign, recipient: Recipient, app: AppSettings, connection, sender=None) -> None:
+    if recipient.status == Recipient.Status.SENT:
+        return
     if Unsubscribe.objects.filter(email__iexact=recipient.email).exists():
         recipient.status = Recipient.Status.SKIPPED
         recipient.error_message = "Unsubscribed"
@@ -397,12 +406,13 @@ def send_one(campaign: Campaign, recipient: Recipient, app: AppSettings, connect
         campaign.save(update_fields=["skipped_count", "updated_at"])
         return
 
-    msg = build_message(campaign, recipient, app, connection)
+    msg = build_message(campaign, recipient, app, connection, sender=sender)
     msg.send()
-    try:
-        save_copy_to_sent(app, msg.message().as_bytes())
-    except Exception:
-        pass
+    if sender is None:
+        try:
+            save_copy_to_sent(app, msg.message().as_bytes())
+        except Exception:
+            pass
     recipient.status = Recipient.Status.SENT
     recipient.sent_at = timezone.now()
     recipient.error_message = ""
@@ -432,9 +442,9 @@ def send_test(campaign: Campaign, to_email: str) -> None:
 
 
 def prepare_campaign_for_send(campaign: Campaign) -> int:
-    pending = campaign.recipients.filter(status=Recipient.Status.PENDING).count()
-    if pending:
-        return pending
+    open_count = campaign.recipients.filter(status__in=Recipient.OPEN_STATUSES).count()
+    if open_count:
+        return open_count
     campaign.recipients.exclude(status=Recipient.Status.SKIPPED).update(
         status=Recipient.Status.PENDING,
         error_message="",
@@ -445,7 +455,7 @@ def prepare_campaign_for_send(campaign: Campaign) -> int:
     campaign.skipped_count = 0
     campaign.last_error = ""
     campaign.save(update_fields=["sent_count", "failed_count", "skipped_count", "last_error", "updated_at"])
-    return campaign.recipients.filter(status=Recipient.Status.PENDING).count()
+    return campaign.recipients.filter(status__in=Recipient.OPEN_STATUSES).count()
 
 
 def _smtp_error_text(exc: Exception) -> str:
@@ -541,79 +551,30 @@ def _open_smtp(app: AppSettings, previous=None):
 
 
 def run_campaign(campaign_id: int, limit: int | None = None) -> int:
+    """Enqueue then drain locally (management command / tests). Web requests should only enqueue."""
+    from campaigns.services.email_sender import process_due_jobs
+    from campaigns.services.queue import enqueue_campaign
+
     if campaign_id in _RUNNING:
         return 0
     with _SEND_LOCK:
         if campaign_id in _RUNNING:
             return 0
         _RUNNING.add(campaign_id)
-
-    connection = None
     processed = 0
     try:
-        campaign = Campaign.objects.select_related("template").get(pk=campaign_id)
-        app = AppSettings.load()
-        campaign.status = Campaign.Status.SENDING
-        campaign.started_at = campaign.started_at or timezone.now()
-        campaign.last_error = ""
-        campaign.save(update_fields=["status", "started_at", "last_error", "updated_at"])
-
-        pending_ids = list(
-            campaign.recipients.filter(status=Recipient.Status.PENDING).values_list("pk", flat=True)
-        )
-        if limit:
-            pending_ids = pending_ids[: max(1, int(limit))]
-        # Stay under Hostinger 451 burst limits: ~1 email/sec and a pause every ~12.
-        delay = max(1.0, float(app.delay_seconds or 1.0))
-        batch_every = 12
-        batch_pause = 20.0
-        processed_in_batch = 0
-        connection = _open_smtp(app)
-        for index, recipient_id in enumerate(pending_ids):
-            campaign.refresh_from_db(fields=["status"])
+        enqueue_campaign(campaign_id, limit=limit)
+        while True:
+            campaign = Campaign.objects.get(pk=campaign_id)
             if campaign.status == Campaign.Status.PAUSED:
-                return processed
-            recipient = Recipient.objects.get(pk=recipient_id)
-            sent_ok = False
-            last_exc = None
-            rate_tries = 0
-            connect_tries = 0
-            while True:
-                try:
-                    send_one(campaign, recipient, app, connection)
-                    sent_ok = True
-                    break
-                except Exception as exc:
-                    last_exc = exc
-                    # Bounce/timeout often kills the Hostinger SMTP session.
-                    connection = _open_smtp(app, connection)
-                    if _is_ratelimit(exc) and rate_tries < 6:
-                        rate_tries += 1
-                        time.sleep(25 * rate_tries)
-                        continue
-                    if _smtp_connection_dead(exc) and connect_tries < 1:
-                        connect_tries += 1
-                        continue
-                    break
-            if not sent_ok and last_exc is not None:
-                _mark_failed(recipient, campaign, last_exc)
-            processed += 1
-
-            if index < len(pending_ids) - 1:
-                processed_in_batch += 1
+                break
+            got = process_due_jobs(max_jobs=1)
+            if not got:
+                break
+            processed += got
+            delay = max(0.0, float(AppSettings.load().delay_seconds or 0))
+            if delay:
                 time.sleep(delay)
-                if processed_in_batch >= batch_every:
-                    time.sleep(batch_pause)
-                    connection = _open_smtp(app, connection)
-                    processed_in_batch = 0
-
-        campaign.refresh_from_db()
-        if campaign.status != Campaign.Status.PAUSED:
-            still_pending = campaign.recipients.filter(status=Recipient.Status.PENDING).exists()
-            campaign.status = Campaign.Status.QUEUED if still_pending else Campaign.Status.COMPLETED
-            if not still_pending:
-                campaign.finished_at = timezone.now()
-            campaign.save(update_fields=["status", "finished_at", "updated_at"])
         return processed
     except Exception as exc:
         title, raw = explain_send_error(exc)
@@ -624,11 +585,6 @@ def run_campaign(campaign_id: int, limit: int | None = None) -> int:
         )
         return processed
     finally:
-        if connection is not None:
-            try:
-                connection.close()
-            except Exception:
-                pass
         _RUNNING.discard(campaign_id)
 
 

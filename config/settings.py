@@ -1,5 +1,6 @@
 import os
 import sys
+from datetime import timedelta
 from pathlib import Path
 
 from django.contrib.messages import constants as message_constants
@@ -177,6 +178,27 @@ if os.getenv("VERCEL") and not os.getenv("SITE_URL"):
     vercel_url = vercel_url.replace("https://", "").replace("http://", "").strip("/")
     if vercel_url:
         SITE_URL = f"https://{vercel_url}"
+
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL") or os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
+CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "false").lower() in {"1", "true", "yes"}
+if "test" in sys.argv:
+    CELERY_TASK_ALWAYS_EAGER = True
+    CELERY_TASK_EAGER_PROPAGATES = True
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_BEAT_SCHEDULE = {
+    "drain-email-queue": {
+        "task": "campaigns.tasks.process_email_queue",
+        "schedule": timedelta(seconds=float(os.getenv("MAIL_SEND_INTERVAL_SECONDS", "8"))),
+    }
+}
+EMAIL_CREDENTIALS_KEY = os.getenv("EMAIL_CREDENTIALS_KEY", "")
+MAIL_SEND_INTERVAL_SECONDS = float(os.getenv("MAIL_SEND_INTERVAL_SECONDS", "8"))
+MAIL_DEFAULT_DAILY_LIMIT = int(os.getenv("MAIL_DEFAULT_DAILY_LIMIT", "300"))
+MAIL_DEFAULT_HOURLY_LIMIT = int(os.getenv("MAIL_DEFAULT_HOURLY_LIMIT", "50"))
+MAIL_SENDER_COOLDOWN_SECONDS = int(os.getenv("MAIL_SENDER_COOLDOWN_SECONDS", "900"))
+MAIL_MAX_ATTEMPTS = int(os.getenv("MAIL_MAX_ATTEMPTS", "8"))
+MAIL_JOBS_PER_TICK = int(os.getenv("MAIL_JOBS_PER_TICK", "20"))
 
 LOGIN_URL = "campaigns:login"
 LOGIN_REDIRECT_URL = "campaigns:dashboard"
